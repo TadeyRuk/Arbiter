@@ -17,6 +17,8 @@ Verify it worked — open **Command Prompt** and run:
 python --version
 ```
 
+> If `git` isn't installed, get it from [git-scm.com](https://git-scm.com/download/win)
+
 ---
 
 ## Step 1 — Get the code
@@ -24,17 +26,37 @@ python --version
 Open **Command Prompt** or **PowerShell**:
 
 ```
-git clone <repo-url>
+git clone https://github.com/TadeyRuk/Arbiter.git
 cd Arbiter
 ```
 
-> If `git` isn't installed, download it from [git-scm.com](https://git-scm.com/download/win)
+---
+
+## Step 2 — Create your agent on Band
+
+Go to [app.band.ai](https://app.band.ai), sign in, then click **Agents** in the left sidebar.
+
+![Agents tab](docs/screenshots/agents-tab.png)
+
+Click **New Agent** → **Remote Agent**. Fill in your agent name and description.
+
+> Name it `Arbiter | AGENT_NAME` — replace `AGENT_NAME` with your role (Triage, Prosecutor, Defender, or Judge).
+
+![Agent info form](docs/screenshots/agent-info.png)
+
+Scroll down and click **Connect Remote Agent**.
+
+![Connect Remote Agent button](docs/screenshots/finish-remote-agent.png)
+
+A popup will show your **ID** and **API Key**. Copy both — the API Key is only shown once.
+
+![Agent keys popup](docs/screenshots/agent-keys.png)
 
 ---
 
-## Step 2 — Go to your agent folder
+## Step 3 — Go to your agent folder
 
-Each person owns one folder. Find yours:
+Open the project in your editor. Find your folder:
 
 | You are | Your folder |
 |---------|-------------|
@@ -43,66 +65,34 @@ Each person owns one folder. Find yours:
 | Defender | `defender\` |
 | Judge | `judge\` |
 
+![Pick your agent folder](docs/screenshots/pick-agent.png)
+
+Open `agent_config.yaml` inside your folder and paste in the ID and API Key you copied.
+
+![Fill in agent_config.yaml](docs/screenshots/config-yaml.png)
+
+---
+
+## Step 4 — Set your API key
+
+In Command Prompt, go to your agent folder and create a `.env` file:
+
 ```
 cd triage
+copy ..\.env.example .env
 ```
 *(replace `triage` with your folder)*
 
----
-
-## Step 3 — Create your agent on Band
-
-1. Go to [app.band.ai](https://app.band.ai) and sign in
-2. Click **Agents** → **New Agent** → **Remote Agent**
-3. Give it a name (e.g. `Triage Agent`)
-4. Copy the **Agent UUID** and **API Key** shown after creation
-
----
-
-## Step 4 — Add your credentials
-
-Open `agent_config.yaml` in Notepad (or any text editor) and replace the placeholder values:
-
-```yaml
-triage_agent:             # use your role name (triage/prosecutor/defender/judge)
-  agent_id: "paste-your-uuid-here"
-  api_key: "paste-your-api-key-here"
-```
-
-Then create your `.env` file. In Command Prompt:
-
-```
-copy ..\.env.example .env
-```
-
 Open `.env` in Notepad and fill in your LLM API key:
 
-| Your folder | Key to fill in |
-|-------------|----------------|
-| `triage\` | `ANTHROPIC_API_KEY` |
-| `prosecutor\` | `ANTHROPIC_API_KEY` |
-| `defender\` | `FEATHERLESS_API_KEY` |
-| `judge\` | `OPENAI_API_KEY` |
+| Your folder | Key to fill in | Where to get it |
+|-------------|----------------|-----------------|
+| `triage\` | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) → API Keys → Create Key |
+| `prosecutor\` | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) → API Keys → Create Key |
+| `defender\` | `FEATHERLESS_API_KEY` | [featherless.ai/account/api-keys](https://featherless.ai/account/api-keys) |
+| `judge\` | `OPENAI_API_KEY` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) → Create new secret key |
 
 The Band URLs are already pre-filled — don't change them.
-
-### Getting your API key
-
-**Featherless** (`defender\`):
-1. Go to [featherless.ai](https://featherless.ai) and click **Sign up**
-2. Create an account
-3. Go to [featherless.ai/account/api-keys](https://featherless.ai/account/api-keys)
-4. Copy your API key and paste it as `FEATHERLESS_API_KEY` in `.env`
-
-**Anthropic** (`triage\`, `prosecutor\`):
-1. Go to [console.anthropic.com](https://console.anthropic.com) and sign in
-2. Click **API Keys** in the left sidebar → **Create Key**
-3. Copy and paste it as `ANTHROPIC_API_KEY` in `.env`
-
-**OpenAI** (`judge\`):
-1. Go to [platform.openai.com/api-keys](https://platform.openai.com/api-keys) and sign in
-2. Click **Create new secret key**
-3. Copy and paste it as `OPENAI_API_KEY` in `.env`
 
 ---
 
@@ -125,19 +115,35 @@ You should see:
 INFO:band.agent:Agent started: <Your Agent Name>
 ```
 
-Your agent is now live. Go to Band, open a room with it, and send it a message to confirm it responds.
+Keep this Command Prompt window open — closing it stops your agent.
+
+---
+
+## Step 7 — Add your agent to a Band room
+
+Go back to Band. Open or create a room. Click **Participants +** in the top right.
+
+![Participants panel](docs/screenshots/participants.png)
+
+Search for your agent by name and select it, then click **Done**.
+
+![Select your agent](docs/screenshots/register-agent.png)
+
+Your agent is now in the room. Mention it with `@` to send it a message.
+
+![Agent live in room](docs/screenshots/finished.png)
 
 ---
 
 ## Troubleshooting
 
-**Agent doesn't respond in Band** — make sure `python agent.py` is still running in your Command Prompt window. It stops when you close it.
+**Agent doesn't respond** — make sure `python agent.py` is still running in Command Prompt.
 
 **`python` not found** — try `py agent.py` instead, or reinstall Python with "Add to PATH" checked.
 
 **`ModuleNotFoundError`** — run `pip install -r requirements.txt` again.
 
-**API key error** — open `.env` in Notepad and check the key has no extra spaces or quotes around it.
+**API key error** — open `.env` in Notepad and check the key has no extra spaces or quotes.
 
 ---
 
