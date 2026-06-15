@@ -1,0 +1,17 @@
+{
+  "alert_id": "ALT-001",
+  "source": "IDS",
+  "rule_name": "PORT_SCAN_DETECTED",
+  "timestamp": "2026-06-15T08:03:12Z",
+  "asset_id": "srv-web-prod-01",
+  "asset_criticality": "high",
+  "raw_payload": {
+    "src_ip": "10.10.5.22",
+    "dst_ip": "10.10.1.0/24",
+    "ports_scanned": [22, 80, 443, 3306, 5432],
+    "scan_type": "SYN",
+    "packets": 312,
+    "duration_seconds": 4,
+    "note": "src_ip belongs to internal Nessus scanner host; scan matches scheduled window 08:00-09:00 UTC Mon-Fri"
+  }
+}

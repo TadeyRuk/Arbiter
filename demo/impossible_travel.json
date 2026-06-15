@@ -1,0 +1,28 @@
+{
+  "alert_id": "ALT-002",
+  "source": "IAM",
+  "rule_name": "IMPOSSIBLE_TRAVEL_LOGIN",
+  "timestamp": "2026-06-15T14:22:07Z",
+  "asset_id": "user-jsmith",
+  "asset_criticality": "medium",
+  "raw_payload": {
+    "user": "jsmith@corp.com",
+    "login_1": {
+      "timestamp": "2026-06-15T14:10:00Z",
+      "ip": "203.0.113.45",
+      "geo": "Manila, PH",
+      "device": "MacBook-jsmith",
+      "mfa": true
+    },
+    "login_2": {
+      "timestamp": "2026-06-15T14:22:07Z",
+      "ip": "198.51.100.12",
+      "geo": "New York, US",
+      "device": "Unknown-Windows",
+      "mfa": false
+    },
+    "distance_km": 13700,
+    "travel_time_minutes": 12,
+    "vpn_exit_nodes_us": ["198.51.100.0/24"]
+  }
+}

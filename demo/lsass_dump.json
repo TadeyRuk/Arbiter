@@ -1,0 +1,27 @@
+{
+  "alert_id": "ALT-003",
+  "source": "EDR",
+  "rule_name": "LSASS_CREDENTIAL_DUMP",
+  "timestamp": "2026-06-15T19:45:33Z",
+  "asset_id": "ws-finance-04",
+  "asset_criticality": "critical",
+  "raw_payload": {
+    "process": "rundll32.exe",
+    "pid": 4821,
+    "parent_process": "cmd.exe",
+    "parent_pid": 4800,
+    "command_line": "rundll32.exe C:\\Windows\\Temp\\srv.dll,#1",
+    "target_process": "lsass.exe",
+    "target_pid": 844,
+    "access_rights": "0x1FFFFF",
+    "mitre": {
+      "technique": "T1003.001",
+      "tactic": "Credential Access",
+      "sub_technique": "OS Credential Dumping: LSASS Memory"
+    },
+    "user": "FINANCE\\svc-backup",
+    "host": "ws-finance-04",
+    "file_dropped": "C:\\Windows\\Temp\\srv.dll",
+    "file_hash_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}
