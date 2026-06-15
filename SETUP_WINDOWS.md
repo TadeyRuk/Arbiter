@@ -83,14 +83,20 @@ copy ..\.env.example .env
 ```
 *(replace `triage` with your folder)*
 
-Open `.env` in Notepad and fill in your LLM API key:
+Open `.env` in Notepad and fill in your Featherless API key — **everyone uses the same one**:
 
-| Your folder | Key to fill in | Where to get it |
-|-------------|----------------|-----------------|
-| `triage\` | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) → API Keys → Create Key |
-| `prosecutor\` | `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) → API Keys → Create Key |
-| `defender\` | `FEATHERLESS_API_KEY` | [featherless.ai/account/api-keys](https://featherless.ai/account/api-keys) |
-| `judge\` | `OPENAI_API_KEY` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) → Create new secret key |
+```
+FEATHERLESS_API_KEY=your_key_here
+```
+
+**Getting your Featherless API key:**
+1. Go to [featherless.ai](https://featherless.ai) and click **Sign up**
+
+![Featherless sign-up](docs/screenshots/featherless-signup.png)
+
+2. Create an account
+3. Go to [featherless.ai/account/api-keys](https://featherless.ai/account/api-keys)
+4. Copy your key and paste it as `FEATHERLESS_API_KEY` in `.env`
 
 The Band URLs are already pre-filled — don't change them.
 

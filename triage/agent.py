@@ -1,5 +1,5 @@
 """
-Triage Agent — LangChain + Claude Haiku (Anthropic)
+Triage Agent — LangChain + Featherless AI
 Enriches the alert and builds the evidence bundle.
 Every fact gets a stable evidence_id. No other agent introduces evidence.
 """
@@ -7,7 +7,7 @@ import asyncio
 import logging
 import os
 from dotenv import load_dotenv
-from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from band import Agent
 from band.adapters import LangGraphAdapter
@@ -20,9 +20,10 @@ async def main():
 
     agent_id, api_key = load_agent_config("triage_agent")
 
-    llm = ChatAnthropic(
-        model="claude-haiku-4-5-20251001",
-        api_key=os.getenv("ANTHROPIC_API_KEY"),
+    llm = ChatOpenAI(
+        model="Qwen/Qwen3-32B",
+        base_url="https://api.featherless.ai/v1",
+        api_key=os.getenv("FEATHERLESS_API_KEY"),
     )
 
     adapter = LangGraphAdapter(

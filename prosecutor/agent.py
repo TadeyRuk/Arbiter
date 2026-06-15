@@ -1,13 +1,15 @@
 """
-Prosecutor Agent — CrewAI + Claude Sonnet (Anthropic)
+Prosecutor Agent — LangChain + Featherless AI
 Argues the alert is a real incident, citing only evidence IDs from the bundle.
 """
 import asyncio
 import logging
 import os
 from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.memory import InMemorySaver
 from band import Agent
-from band.adapters import CrewAIAdapter
+from band.adapters import LangGraphAdapter
 from band.config import load_agent_config
 
 logging.basicConfig(level=logging.INFO)
@@ -17,14 +19,15 @@ async def main():
 
     agent_id, api_key = load_agent_config("prosecutor_agent")
 
-    # TODO: configure CrewAI agent with Claude Sonnet
-    # from crewai import Agent as CrewAgent
-    # from langchain_anthropic import ChatAnthropic
-    # llm = ChatAnthropic(model="claude-sonnet-4-6", api_key=os.getenv("ANTHROPIC_API_KEY"))
-    # crew_agent = CrewAgent(role="Prosecutor", goal="...", llm=llm, ...)
+    llm = ChatOpenAI(
+        model="Qwen/Qwen3-32B",
+        base_url="https://api.featherless.ai/v1",
+        api_key=os.getenv("FEATHERLESS_API_KEY"),
+    )
 
-    adapter = CrewAIAdapter(
-        # crew_agent=crew_agent,
+    adapter = LangGraphAdapter(
+        llm=llm,
+        checkpointer=InMemorySaver(),
         custom_section="""
         You are the Prosecutor Agent for the Arbiter security adjudication system.
 
