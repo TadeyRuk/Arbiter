@@ -1,4 +1,0 @@
-[    1886ms] [WARNING] [antalytics] track() called before init(); event dropped @ https://platform.claude.com/_next/static/chunks/51863-5f2ba09098a32167.js:11
-[    1887ms] [WARNING] [antalytics] track() called before init(); event dropped @ https://platform.claude.com/_next/static/chunks/51863-5f2ba09098a32167.js:11
-[    2100ms] [WARNING] [antalytics] track() called before init(); event dropped @ https://platform.claude.com/_next/static/chunks/51863-5f2ba09098a32167.js:11
-[    2690ms] [WARNING] [Intercom] The App ID in your code snippet has not been set. Set it to your App ID found in settings to complete installation: https://app.intercom.com/a/apps/_/settings/web @ https://js.intercomcdn.com/frame-modern.ea5813bd.js:0
