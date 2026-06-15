@@ -25,6 +25,41 @@ Each teammate runs one agent. Follow the guide for your OS:
 
 ---
 
+## Getting your API keys
+
+Before running an agent you need two things: a **Featherless API key** (for the LLM) and a **Band agent token** (covered in the OS setup guides).
+
+### Featherless API key
+
+Featherless is the inference provider for the open-source models used by the Orchestrator and Defender agents.
+
+1. Go to [featherless.ai](https://featherless.ai) and click **Sign up**
+2. Create a free account (no credit card required to start)
+3. Once logged in, go to **Account → API Keys**: [featherless.ai/account/api-keys](https://featherless.ai/account/api-keys)
+4. Click **Create new key**, give it a name (e.g. `arbiter`), and copy it
+
+### Configure your `.env`
+
+In the project root, copy the example file and fill in your key:
+
+```bash
+cp .env.example .env
+```
+
+Then open `.env` and replace the placeholder:
+
+```
+FEATHERLESS_API_KEY=your_key_here
+THENVOI_REST_URL=https://app.band.ai/
+THENVOI_WS_URL=wss://app.band.ai/api/v1/socket/websocket
+```
+
+> **Note:** The `THENVOI_*` URLs are already correct — don't change them.
+
+> **Never commit `.env`** — it contains your private API key.
+
+---
+
 ## Project structure
 
 ```
