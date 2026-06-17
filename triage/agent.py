@@ -30,11 +30,18 @@ except ImportError:  # pragma: no cover - supports `python triage/agent.py`.
     from schemas import Evidence, TriageSupplementRequest
     from tools import SCENARIOS, TRIAGE_TOOLS, _build_and_post_bundle_impl
 
+import inspect
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 EVD_ID_RE = re.compile(r"EVD-[0-9a-f]{6}-\d{3}")
 TRIAGE_DIR = Path(__file__).resolve().parent
 AGENT_CONFIG_PATH = TRIAGE_DIR / "agent_config.yaml"
+
+def _field(p, key):
+    if isinstance(p, dict):
+        return p.get(key)
+    return getattr(p, key, None)
 
 
 SYSTEM_PROMPT = """
@@ -274,6 +281,29 @@ class TriagePreprocessor:
     async def process(self, ctx: Any, event: Any, agent_id: str) -> Any:
         agent_input = await self._inner.process(ctx=ctx, event=event, agent_id=agent_id)
         if agent_input is None:
+            return None
+
+        # Check if spoken to
+        content_lower = (agent_input.msg.content or "").lower()
+        tools = agent_input.tools
+        parts = tools.get_participants()
+        if inspect.isawaitable(parts):
+            parts = await parts
+        
+        self_handle = None
+        for p in parts or []:
+            if _field(p, "id") == agent_id:
+                self_handle = _field(p, "handle") or _field(p, "name")
+                break
+                
+        is_spoken_to = False
+        if self_handle and self_handle.lower() in content_lower:
+            is_spoken_to = True
+        elif "triage" in content_lower:
+            is_spoken_to = True
+            
+        if not is_spoken_to:
+            logger.info("Triage agent ignoring message %s (not spoken to)", agent_input.msg.id)
             return None
 
         payload = _json_from_message(agent_input.msg.content)

@@ -86,12 +86,40 @@ class ProsecutorAdapter(SimpleAdapter):
         room_id: str,
     ) -> None:
         logger.info("[PROSECUTOR] handling %s in %s", msg.id, room_id)
+        
+        # Fetch mentions/others
+        mentions = await self._others(tools)
+
+        # 1. Greeting once on bootstrap, then exit immediately to prevent runaway loop at start
+        if is_session_bootstrap:
+            await tools.send_message(content=WELCOME, mentions=mentions or None)
+            return
+
+        # 2. Check if spoken to
+        content_lower = (msg.content or "").lower()
+        parts = tools.get_participants()
+        if inspect.isawaitable(parts):
+            parts = await parts
+        
+        self_handle = None
+        for p in parts or []:
+            if _field(p, "id") == self.self_id:
+                self_handle = _field(p, "handle") or _field(p, "name")
+                break
+                
+        is_spoken_to = False
+        if self_handle and self_handle.lower() in content_lower:
+            is_spoken_to = True
+        elif "prosecutor" in content_lower:
+            is_spoken_to = True
+            
+        if not is_spoken_to:
+            logger.info("[PROSECUTOR] ignoring message %s (not spoken to)", msg.id)
+            return
+
         user_text = msg.format_for_llm()
         messages = [("system", ROOM_PROMPT), *(history or []), ("user", user_text)]
         try:
-            mentions = await self._others(tools)
-            if is_session_bootstrap:
-                await tools.send_message(content=WELCOME, mentions=mentions or None)
             response = await self.llm.ainvoke(messages)
             content = _clean(getattr(response, "content", str(response)))
             if not content:
