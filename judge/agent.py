@@ -17,6 +17,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("judge")
 JUDGE_DIR = Path(__file__).resolve().parent
 AGENT_CONFIG_PATH = JUDGE_DIR / "agent_config.yaml"
+ORCHESTRATOR_HANDLE_SUFFIX = "/arbiter-orchestrator"
+JUDGE_HANDOFF_MARKERS = (
+    "[ORCHESTRATOR → JUDGE]",
+    "[ORCHESTRATOR -> JUDGE]",
+)
 
 SYSTEM_PROMPT = """\
 You are the Judge Agent for the Arbiter security adjudication system.
@@ -52,6 +57,14 @@ def _field(p, key):
     return getattr(p, key, None)
 
 
+def _is_targeted_to_judge(content: str, self_handle: str | None, sender_handle: str | None) -> bool:
+    if self_handle and self_handle.lower() in content.lower():
+        return True
+    if sender_handle and sender_handle.lower().endswith(ORCHESTRATOR_HANDLE_SUFFIX):
+        return any(marker in content for marker in JUDGE_HANDOFF_MARKERS)
+    return False
+
+
 class JudgePreprocessor(DefaultPreprocessor):
     """Only pass messages to LangGraph if Judge is explicitly spoken to/mentioned."""
 
@@ -64,7 +77,6 @@ class JudgePreprocessor(DefaultPreprocessor):
         if agent_input.msg.sender_id == agent_id:
             return None
 
-        content_lower = (agent_input.msg.content or "").lower()
         tools = agent_input.tools
         parts = tools.get_participants()
         if inspect.isawaitable(parts):
@@ -88,13 +100,7 @@ class JudgePreprocessor(DefaultPreprocessor):
             if sh_lower.endswith("/arbiter-prosecutor") or sh_lower.endswith("/arbiter-defender") or sh_lower.endswith("/arbiter-triage"):
                 return None
                 
-        is_spoken_to = False
-        if self_handle and self_handle.lower() in content_lower:
-            is_spoken_to = True
-        elif "judge" in content_lower:
-            is_spoken_to = True
-            
-        if not is_spoken_to:
+        if not _is_targeted_to_judge(agent_input.msg.content or "", self_handle, sender_handle):
             return None
 
         return agent_input

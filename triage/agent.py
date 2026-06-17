@@ -37,11 +37,24 @@ logger = logging.getLogger(__name__)
 EVD_ID_RE = re.compile(r"EVD-[0-9a-f]{6}-\d{3}")
 TRIAGE_DIR = Path(__file__).resolve().parent
 AGENT_CONFIG_PATH = TRIAGE_DIR / "agent_config.yaml"
+ORCHESTRATOR_HANDLE_SUFFIX = "/arbiter-orchestrator"
+TRIAGE_HANDOFF_MARKERS = (
+    "[ORCHESTRATOR → TRIAGE]",
+    "[ORCHESTRATOR -> TRIAGE]",
+)
 
 def _field(p, key):
     if isinstance(p, dict):
         return p.get(key)
     return getattr(p, key, None)
+
+
+def _is_targeted_to_triage(content: str, self_handle: str | None, sender_handle: str | None) -> bool:
+    if self_handle and self_handle.lower() in content.lower():
+        return True
+    if sender_handle and sender_handle.lower().endswith(ORCHESTRATOR_HANDLE_SUFFIX):
+        return any(marker in content for marker in TRIAGE_HANDOFF_MARKERS)
+    return False
 
 
 SYSTEM_PROMPT = """
@@ -289,7 +302,6 @@ class TriagePreprocessor:
             return None
 
         # Check if spoken to
-        content_lower = (agent_input.msg.content or "").lower()
         tools = agent_input.tools
         parts = tools.get_participants()
         if inspect.isawaitable(parts):
@@ -314,13 +326,7 @@ class TriagePreprocessor:
                 logger.info("Triage agent ignoring message %s (sent by other agent %s)", agent_input.msg.id, sender_handle)
                 return None
                 
-        is_spoken_to = False
-        if self_handle and self_handle.lower() in content_lower:
-            is_spoken_to = True
-        elif "triage" in content_lower:
-            is_spoken_to = True
-            
-        if not is_spoken_to:
+        if not _is_targeted_to_triage(agent_input.msg.content or "", self_handle, sender_handle):
             logger.info("Triage agent ignoring message %s (not spoken to)", agent_input.msg.id)
             return None
 

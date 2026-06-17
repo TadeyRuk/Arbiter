@@ -31,6 +31,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("defender")
 DEFENDER_DIR = Path(__file__).resolve().parent
 AGENT_CONFIG_PATH = DEFENDER_DIR / "agent_config.yaml"
+ORCHESTRATOR_HANDLE_SUFFIX = "/arbiter-orchestrator"
+DEFENDER_HANDOFF_MARKERS = (
+    "[ORCHESTRATOR → DEFENDER]",
+    "[ORCHESTRATOR -> DEFENDER]",
+)
 
 _THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
 
@@ -45,6 +50,14 @@ def _field(p, key):
     if isinstance(p, dict):
         return p.get(key)
     return getattr(p, key, None)
+
+
+def _is_targeted_to_defender(content: str, self_handle: str | None, sender_handle: str | None) -> bool:
+    if self_handle and self_handle.lower() in content.lower():
+        return True
+    if sender_handle and sender_handle.lower().endswith(ORCHESTRATOR_HANDLE_SUFFIX):
+        return any(marker in content for marker in DEFENDER_HANDOFF_MARKERS)
+    return False
 
 
 WELCOME = (
@@ -166,21 +179,13 @@ class DefenderAdapter(SimpleAdapter):
                 return
 
         # 2. Check if spoken to
-        content_lower = (msg.content or "").lower()
-        
         self_handle = None
         for p in parts or []:
             if _field(p, "id") == self.self_id:
                 self_handle = _field(p, "handle") or _field(p, "name")
                 break
                 
-        is_spoken_to = False
-        if self_handle and self_handle.lower() in content_lower:
-            is_spoken_to = True
-        elif "defender" in content_lower:
-            is_spoken_to = True
-            
-        if not is_spoken_to:
+        if not _is_targeted_to_defender(msg.content or "", self_handle, sender_handle):
             logger.info("[DEFENDER] ignoring message %s (not spoken to)", msg.id)
             return
 
