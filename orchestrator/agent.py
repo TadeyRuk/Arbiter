@@ -177,6 +177,12 @@ class OrchestratorAdapter(SimpleAdapter):
         room_id: str,
     ) -> None:
         logger.info("[ORCHESTRATOR] phase=%s handling %s in %s", self._phase, msg.id, room_id)
+        
+        # 0. Ignore messages sent by self
+        if msg.sender_id == self.self_id:
+            logger.info("[ORCHESTRATOR] ignoring message %s (sent by self)", msg.id)
+            return
+
         user_text = msg.format_for_llm()
         messages = [("system", SYSTEM_PROMPT), *(history or []), ("user", user_text)]
 

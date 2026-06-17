@@ -87,6 +87,11 @@ class ProsecutorAdapter(SimpleAdapter):
     ) -> None:
         logger.info("[PROSECUTOR] handling %s in %s", msg.id, room_id)
         
+        # 0. Ignore messages sent by self
+        if msg.sender_id == self.self_id:
+            logger.info("[PROSECUTOR] ignoring message %s (sent by self)", msg.id)
+            return
+
         # Fetch mentions/others
         mentions = await self._others(tools)
 
@@ -95,11 +100,25 @@ class ProsecutorAdapter(SimpleAdapter):
             await tools.send_message(content=WELCOME, mentions=mentions or None)
             return
 
-        # 2. Check if spoken to
-        content_lower = (msg.content or "").lower()
+        # Check if sender is another agent we shouldn't listen to directly (Triage, Defender, Judge)
         parts = tools.get_participants()
         if inspect.isawaitable(parts):
             parts = await parts
+        
+        sender_handle = None
+        for p in parts or []:
+            if _field(p, "id") == msg.sender_id:
+                sender_handle = _field(p, "handle") or _field(p, "name")
+                break
+
+        if sender_handle:
+            sh_lower = sender_handle.lower()
+            if sh_lower.endswith("/arbiter-defender") or sh_lower.endswith("/arbiter-triage") or sh_lower.endswith("/arbiter-judge"):
+                logger.info("[PROSECUTOR] ignoring message %s (sent by other agent %s)", msg.id, sender_handle)
+                return
+
+        # 2. Check if spoken to
+        content_lower = (msg.content or "").lower()
         
         self_handle = None
         for p in parts or []:

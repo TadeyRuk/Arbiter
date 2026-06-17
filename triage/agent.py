@@ -283,6 +283,11 @@ class TriagePreprocessor:
         if agent_input is None:
             return None
 
+        # 0. Ignore messages sent by self
+        if agent_input.msg.sender_id == agent_id:
+            logger.info("Triage agent ignoring message %s (sent by self)", agent_input.msg.id)
+            return None
+
         # Check if spoken to
         content_lower = (agent_input.msg.content or "").lower()
         tools = agent_input.tools
@@ -295,6 +300,19 @@ class TriagePreprocessor:
             if _field(p, "id") == agent_id:
                 self_handle = _field(p, "handle") or _field(p, "name")
                 break
+
+        # Ignore messages from other non-coordinating agents (Prosecutor, Defender)
+        sender_handle = None
+        for p in parts or []:
+            if _field(p, "id") == agent_input.msg.sender_id:
+                sender_handle = _field(p, "handle") or _field(p, "name")
+                break
+
+        if sender_handle:
+            sh_lower = sender_handle.lower()
+            if sh_lower.endswith("/arbiter-prosecutor") or sh_lower.endswith("/arbiter-defender"):
+                logger.info("Triage agent ignoring message %s (sent by other agent %s)", agent_input.msg.id, sender_handle)
+                return None
                 
         is_spoken_to = False
         if self_handle and self_handle.lower() in content_lower:

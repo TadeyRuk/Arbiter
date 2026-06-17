@@ -56,6 +56,10 @@ class JudgePreprocessor(DefaultPreprocessor):
         if agent_input is None:
             return None
 
+        # 0. Ignore messages sent by self
+        if agent_input.msg.sender_id == agent_id:
+            return None
+
         content_lower = (agent_input.msg.content or "").lower()
         tools = agent_input.tools
         parts = tools.get_participants()
@@ -67,6 +71,18 @@ class JudgePreprocessor(DefaultPreprocessor):
             if _field(p, "id") == agent_id:
                 self_handle = _field(p, "handle") or _field(p, "name")
                 break
+
+        # Ignore messages from other non-coordinating agents (Prosecutor, Defender, Triage)
+        sender_handle = None
+        for p in parts or []:
+            if _field(p, "id") == agent_input.msg.sender_id:
+                sender_handle = _field(p, "handle") or _field(p, "name")
+                break
+
+        if sender_handle:
+            sh_lower = sender_handle.lower()
+            if sh_lower.endswith("/arbiter-prosecutor") or sh_lower.endswith("/arbiter-defender") or sh_lower.endswith("/arbiter-triage"):
+                return None
                 
         is_spoken_to = False
         if self_handle and self_handle.lower() in content_lower:
