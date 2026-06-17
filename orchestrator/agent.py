@@ -42,11 +42,11 @@ _DISPOSITION_MARKERS = ('"verdict"', '"confidence"', '"severity_score"', '"requi
 
 _AGENT_NAMES = ("triage", "prosecutor", "defender", "judge")
 _AGENT_HANDLE_SUFFIXES = (
-    "/arbiter-orchestrator",
-    "/arbiter-triage",
-    "/arbiter-prosecutor",
-    "/arbiter-defender",
-    "/arbiter-judge",
+    "/arbiter-orchestrator2",
+    "/triage",
+    "/prosecuter",
+    "/defender",
+    "/judge",
 )
 
 # Tokens are ~4 chars; 600 chars ≈ 150 tokens — long enough to warrant deep reasoning.
@@ -80,10 +80,10 @@ You are the Arbiter Orchestrator for a Security Operations Center adjudication s
 You coordinate the workflow — you do not perform analysis or issue verdicts.
 
 Agents in this system:
-- Triage: enriches alerts, builds the EvidenceBundle with stable evidence_ids. Handle ends with /arbiter-triage.
-- Prosecutor: argues the alert is a real incident. Handle ends with /arbiter-prosecutor.
-- Defender: argues the alert is a false positive. Handle ends with /arbiter-defender.
-- Judge: validates citations, scores severity, issues the Disposition. Handle ends with /arbiter-judge.
+- Triage: enriches alerts, builds the EvidenceBundle with stable evidence_ids. Handle ends with /triage.
+- Prosecutor: argues the alert is a real incident. Handle ends with /prosecuter.
+- Defender: argues the alert is a false positive. Handle ends with /defender.
+- Judge: validates citations, scores severity, issues the Disposition. Handle ends with /judge.
 
 Workflow:
 1. When an alert JSON arrives, acknowledge it and open the case.
@@ -175,7 +175,7 @@ class OrchestratorAdapter(SimpleAdapter):
             handle = _field(p, "handle") or _field(p, "name")
             is_self = (
                 _field(p, "id") == self.self_id
-                or (handle or "").endswith("/arbiter-orchestrator")
+                or (handle or "").endswith("/arbiter-orchestrator2")
             )
             if handle and not is_self:
                 handles.append(handle)
@@ -200,13 +200,13 @@ class OrchestratorAdapter(SimpleAdapter):
         for p in await self._participants(tools):
             if _field(p, "id") == sender_id:
                 handle = _field(p, "handle") or _field(p, "name") or ""
-                if handle.endswith("/arbiter-triage"):
+                if handle.endswith("/triage"):
                     return "triage"
-                elif handle.endswith("/arbiter-prosecutor"):
+                elif handle.endswith("/prosecuter"):
                     return "prosecutor"
-                elif handle.endswith("/arbiter-defender"):
+                elif handle.endswith("/defender"):
                     return "defender"
-                elif handle.endswith("/arbiter-judge"):
+                elif handle.endswith("/judge"):
                     return "judge"
         return None
 
@@ -268,7 +268,7 @@ class OrchestratorAdapter(SimpleAdapter):
                     content = "**[ORCHESTRATOR]** New alert received. Opening case and routing to Triage."
                 await tools.send_message(content=content, mentions=human_mentions or None)
 
-                triage = await self._find_agent(tools, "/arbiter-triage")
+                triage = await self._find_agent(tools, "/triage")
                 if triage:
                     await tools.send_message(
                         content=(
@@ -282,7 +282,7 @@ class OrchestratorAdapter(SimpleAdapter):
                     await tools.send_message(
                         content=(
                             "⚠️ Triage agent not found in room. "
-                            "Add the agent whose handle ends with `/arbiter-triage` and resend."
+                            "Add the agent whose handle ends with `/triage` and resend."
                         ),
                         mentions=human_mentions or None,
                     )
@@ -299,8 +299,8 @@ class OrchestratorAdapter(SimpleAdapter):
                     mentions=human_mentions or None,
                 )
 
-                prosecutor = await self._find_agent(tools, "/arbiter-prosecutor")
-                defender = await self._find_agent(tools, "/arbiter-defender")
+                prosecutor = await self._find_agent(tools, "/prosecuter")
+                defender = await self._find_agent(tools, "/defender")
                 missing = [r for r, h in [("Prosecutor", prosecutor), ("Defender", defender)] if not h]
 
                 if missing:
@@ -360,7 +360,7 @@ class OrchestratorAdapter(SimpleAdapter):
                         mentions=human_mentions or None,
                     )
 
-                    judge = await self._find_agent(tools, "/arbiter-judge")
+                    judge = await self._find_agent(tools, "/judge")
                     if judge:
                         case_text = "\n\n---\n\n".join(self._case_summary)
                         await tools.send_message(

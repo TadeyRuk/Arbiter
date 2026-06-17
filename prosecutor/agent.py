@@ -25,7 +25,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("prosecutor")
 PROSECUTOR_DIR = Path(__file__).resolve().parent
 AGENT_CONFIG_PATH = PROSECUTOR_DIR / "agent_config.yaml"
-ORCHESTRATOR_HANDLE_SUFFIX = "/arbiter-orchestrator"
+ORCHESTRATOR_HANDLE_SUFFIX = "/arbiter-orchestrator2"
 PROSECUTOR_HANDOFF_MARKERS = (
     "[ORCHESTRATOR → PROSECUTOR]",
     "[ORCHESTRATOR -> PROSECUTOR]",
@@ -84,7 +84,7 @@ class ProsecutorAdapter(SimpleAdapter):
             handle = _field(p, "handle") or _field(p, "name")
             is_self = (
                 _field(p, "id") == self.self_id
-                or (handle or "").endswith("/arbiter-prosecutor")
+                or (handle or "").endswith("/prosecuter")
             )
             if handle and not is_self:
                 handles.append(handle)
@@ -101,11 +101,11 @@ class ProsecutorAdapter(SimpleAdapter):
             handle
             and handle.endswith(
                 (
-                    "/arbiter-orchestrator",
-                    "/arbiter-triage",
-                    "/arbiter-prosecutor",
-                    "/arbiter-defender",
-                    "/arbiter-judge",
+                    "/arbiter-orchestrator2",
+                    "/triage",
+                    "/prosecuter",
+                    "/defender",
+                    "/judge",
                 )
             )
         )
@@ -160,7 +160,7 @@ class ProsecutorAdapter(SimpleAdapter):
 
         if sender_handle:
             sh_lower = sender_handle.lower()
-            if sh_lower.endswith("/arbiter-defender") or sh_lower.endswith("/arbiter-triage") or sh_lower.endswith("/arbiter-judge"):
+            if sh_lower.endswith("/defender") or sh_lower.endswith("/triage") or sh_lower.endswith("/judge"):
                 logger.info("[PROSECUTOR] ignoring message %s (sent by other agent %s)", msg.id, sender_handle)
                 return
 

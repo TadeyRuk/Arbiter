@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 EVD_ID_RE = re.compile(r"EVD-[0-9a-f]{6}-\d{3}")
 TRIAGE_DIR = Path(__file__).resolve().parent
 AGENT_CONFIG_PATH = TRIAGE_DIR / "agent_config.yaml"
-ORCHESTRATOR_HANDLE_SUFFIX = "/arbiter-orchestrator"
+ORCHESTRATOR_HANDLE_SUFFIX = "/arbiter-orchestrator2"
 TRIAGE_HANDOFF_MARKERS = (
     "[ORCHESTRATOR → TRIAGE]",
     "[ORCHESTRATOR -> TRIAGE]",
@@ -322,7 +322,7 @@ class TriagePreprocessor:
 
         if sender_handle:
             sh_lower = sender_handle.lower()
-            if sh_lower.endswith("/arbiter-prosecutor") or sh_lower.endswith("/arbiter-defender"):
+            if sh_lower.endswith("/prosecuter") or sh_lower.endswith("/defender"):
                 logger.info("Triage agent ignoring message %s (sent by other agent %s)", agent_input.msg.id, sender_handle)
                 return None
                 

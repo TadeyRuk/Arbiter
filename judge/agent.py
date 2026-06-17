@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("judge")
 JUDGE_DIR = Path(__file__).resolve().parent
 AGENT_CONFIG_PATH = JUDGE_DIR / "agent_config.yaml"
-ORCHESTRATOR_HANDLE_SUFFIX = "/arbiter-orchestrator"
+ORCHESTRATOR_HANDLE_SUFFIX = "/arbiter-orchestrator2"
 JUDGE_HANDOFF_MARKERS = (
     "[ORCHESTRATOR → JUDGE]",
     "[ORCHESTRATOR -> JUDGE]",
@@ -97,7 +97,7 @@ class JudgePreprocessor(DefaultPreprocessor):
 
         if sender_handle:
             sh_lower = sender_handle.lower()
-            if sh_lower.endswith("/arbiter-prosecutor") or sh_lower.endswith("/arbiter-defender") or sh_lower.endswith("/arbiter-triage"):
+            if sh_lower.endswith("/prosecuter") or sh_lower.endswith("/defender") or sh_lower.endswith("/triage"):
                 return None
                 
         if not _is_targeted_to_judge(agent_input.msg.content or "", self_handle, sender_handle):

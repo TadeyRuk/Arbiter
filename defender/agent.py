@@ -31,7 +31,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("defender")
 DEFENDER_DIR = Path(__file__).resolve().parent
 AGENT_CONFIG_PATH = DEFENDER_DIR / "agent_config.yaml"
-ORCHESTRATOR_HANDLE_SUFFIX = "/arbiter-orchestrator"
+ORCHESTRATOR_HANDLE_SUFFIX = "/arbiter-orchestrator2"
 DEFENDER_HANDOFF_MARKERS = (
     "[ORCHESTRATOR → DEFENDER]",
     "[ORCHESTRATOR -> DEFENDER]",
@@ -98,7 +98,7 @@ class DefenderAdapter(SimpleAdapter):
             handle = _field(p, "handle") or _field(p, "name")
             is_self = (
                 _field(p, "id") == self.self_id
-                or (handle or "").endswith("/arbiter-defender")
+                or (handle or "").endswith("/defender")
             )
             if handle and not is_self:
                 handles.append(handle)
@@ -115,11 +115,11 @@ class DefenderAdapter(SimpleAdapter):
             handle
             and handle.endswith(
                 (
-                    "/arbiter-orchestrator",
-                    "/arbiter-triage",
-                    "/arbiter-prosecutor",
-                    "/arbiter-defender",
-                    "/arbiter-judge",
+                    "/arbiter-orchestrator2",
+                    "/triage",
+                    "/prosecuter",
+                    "/defender",
+                    "/judge",
                 )
             )
         )
@@ -174,7 +174,7 @@ class DefenderAdapter(SimpleAdapter):
 
         if sender_handle:
             sh_lower = sender_handle.lower()
-            if sh_lower.endswith("/arbiter-prosecutor") or sh_lower.endswith("/arbiter-triage") or sh_lower.endswith("/arbiter-judge"):
+            if sh_lower.endswith("/prosecuter") or sh_lower.endswith("/triage") or sh_lower.endswith("/judge"):
                 logger.info("[DEFENDER] ignoring message %s (sent by other agent %s)", msg.id, sender_handle)
                 return
 
