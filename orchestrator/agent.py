@@ -32,9 +32,32 @@ _THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
 _ALERT_KEYS = ('"alert_id"', '"rule_name"', '"raw_payload"')
 
 
+_AGENT_NAMES = ("triage", "prosecutor", "defender", "judge")
+
+# Tokens are ~4 chars; 600 chars ≈ 150 tokens — long enough to warrant deep reasoning.
+_THINKING_CHAR_THRESHOLD = 600
+
+
 def _needs_thinking(text: str) -> bool:
-    """Enable Qwen3 thinking for alert adjudication; skip for routine chatter."""
-    return any(k in text for k in _ALERT_KEYS)
+    """Heuristic: enable Qwen3 thinking when the message warrants deep analysis.
+
+    Triggers:
+    - Contains an alert payload (known JSON keys).
+    - Long message — complex inquiry needs reasoning before routing.
+    - References multiple agents — cross-agent coordination is non-trivial.
+    - Deeply nested JSON — structured complexity signals a real case, not chatter.
+    """
+    if any(k in text for k in _ALERT_KEYS):
+        return True
+    if len(text) >= _THINKING_CHAR_THRESHOLD:
+        return True
+    agents_mentioned = sum(1 for name in _AGENT_NAMES if name in text.lower())
+    if agents_mentioned >= 2:
+        return True
+    # Nested JSON: two or more levels of braces/brackets suggest a complex payload.
+    if text.count("{") >= 2 or text.count("[") >= 2:
+        return True
+    return False
 
 SYSTEM_PROMPT = """\
 You are the Arbiter Orchestrator for a Security Operations Center adjudication system.
