@@ -24,7 +24,9 @@ logger = logging.getLogger("run_all")
 async def main():
     load_dotenv()
 
-    featherless_key = os.getenv("FEATHERLESS_API_KEY")
+    shared_key = os.getenv("FEATHERLESS_API_KEY")
+    orch_featherless_key = os.getenv("FEATHERLESS_API_KEY_ORCHESTRATOR", shared_key)
+    def_featherless_key  = os.getenv("FEATHERLESS_API_KEY_DEFENDER",     shared_key)
     ws_url   = os.getenv("THENVOI_WS_URL")
     rest_url = os.getenv("THENVOI_REST_URL")
 
@@ -38,13 +40,13 @@ async def main():
     orch_llm = ChatOpenAI(
         model="Qwen/Qwen3-32B",
         base_url="https://api.featherless.ai/v1",
-        api_key=featherless_key,
+        api_key=orch_featherless_key,
         temperature=0,
     )
     def_llm = ChatOpenAI(
         model="Qwen/Qwen3-32B",
         base_url="https://api.featherless.ai/v1",
-        api_key=featherless_key,
+        api_key=def_featherless_key,
         temperature=0,
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
