@@ -38,6 +38,48 @@ Responsibilities:
 Be calibrated. An honest low-confidence verdict is better than a false certainty.
 """
 
+import inspect
+from band.preprocessing import DefaultPreprocessor
+
+# helper function _field
+def _field(p, key):
+    if isinstance(p, dict):
+        return p.get(key)
+    return getattr(p, key, None)
+
+
+class JudgePreprocessor(DefaultPreprocessor):
+    """Only pass messages to LangGraph if Judge is explicitly spoken to/mentioned."""
+
+    async def process(self, ctx: inspect.Any, event: inspect.Any, agent_id: str) -> inspect.Any:
+        agent_input = await super().process(ctx=ctx, event=event, agent_id=agent_id)
+        if agent_input is None:
+            return None
+
+        content_lower = (agent_input.msg.content or "").lower()
+        tools = agent_input.tools
+        parts = tools.get_participants()
+        if inspect.isawaitable(parts):
+            parts = await parts
+        
+        self_handle = None
+        for p in parts or []:
+            if _field(p, "id") == agent_id:
+                self_handle = _field(p, "handle") or _field(p, "name")
+                break
+                
+        is_spoken_to = False
+        if self_handle and self_handle.lower() in content_lower:
+            is_spoken_to = True
+        elif "judge" in content_lower:
+            is_spoken_to = True
+            
+        if not is_spoken_to:
+            return None
+
+        return agent_input
+
+
 async def main():
     load_dotenv()
 
@@ -66,6 +108,7 @@ async def main():
         api_key=api_key,
         ws_url=os.getenv("THENVOI_WS_URL"),
         rest_url=os.getenv("THENVOI_REST_URL"),
+        preprocessor=JudgePreprocessor(),
     )
 
     await agent.run()
