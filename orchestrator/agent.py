@@ -31,6 +31,11 @@ _THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 _ALERT_KEYS = ('"alert_id"', '"rule_name"', '"raw_payload"')
 
+
+def _needs_thinking(text: str) -> bool:
+    """Enable Qwen3 thinking for alert adjudication; skip for routine chatter."""
+    return any(k in text for k in _ALERT_KEYS)
+
 SYSTEM_PROMPT = """\
 You are the Arbiter Orchestrator for a Security Operations Center adjudication system.
 
@@ -130,7 +135,11 @@ class OrchestratorAdapter(SimpleAdapter):
             if is_session_bootstrap:
                 await tools.send_message(content=WELCOME, mentions=mentions or None)
 
-            response = await self.llm.ainvoke(messages)
+            thinking = _needs_thinking(user_text)
+            response = await self.llm.ainvoke(
+                messages,
+                extra_body={"chat_template_kwargs": {"enable_thinking": thinking}},
+            )
             content = _clean(getattr(response, "content", str(response)))
             if not content:
                 content = "Acknowledged. Routing alert through the adjudication pipeline."
@@ -179,7 +188,6 @@ async def main():
         base_url="https://api.featherless.ai/v1",
         api_key=os.getenv("FEATHERLESS_API_KEY"),
         temperature=0,
-        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
 
     agent = Agent.create(
