@@ -392,10 +392,15 @@ async def main():
 
     agent_id, api_key = load_agent_config("triage_agent", config_path=AGENT_CONFIG_PATH)
 
+    model = (
+        os.getenv("FEATHERLESS_MODEL_TRIAGE")
+        or os.getenv("FEATHERLESS_MODEL")
+        or "Qwen/Qwen3-32B"
+    )
     llm = ChatOpenAI(
-        model="Qwen/Qwen3-32B",
+        model=model,
         base_url="https://api.featherless.ai/v1",
-        api_key=os.getenv("FEATHERLESS_API_KEY"),
+        api_key=os.getenv("FEATHERLESS_API_KEY_TRIAGE") or os.getenv("FEATHERLESS_API_KEY"),
     )
 
     adapter = LangGraphAdapter(

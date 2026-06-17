@@ -15,7 +15,10 @@ from band.config import load_agent_config
 from band.core.simple_adapter import SimpleAdapter
 from band.converters.langchain import LangChainHistoryConverter
 
-from prosecution import ROOM_PROMPT
+try:
+    from .prosecution import ROOM_PROMPT
+except ImportError:
+    from prosecution import ROOM_PROMPT
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("prosecutor")
@@ -115,10 +118,15 @@ async def main():
     agent_id, api_key = load_agent_config("prosecutor_agent")
 
     while True:
+        model = (
+            os.getenv("FEATHERLESS_MODEL_PROSECUTOR")
+            or os.getenv("FEATHERLESS_MODEL")
+            or "Qwen/Qwen3-32B"
+        )
         llm = ChatOpenAI(
-            model="Qwen/Qwen3-32B",
+            model=model,
             base_url="https://api.featherless.ai/v1",
-            api_key=os.getenv("FEATHERLESS_API_KEY"),
+            api_key=os.getenv("FEATHERLESS_API_KEY_PROSECUTOR") or os.getenv("FEATHERLESS_API_KEY"),
             temperature=0.2,
             extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         )

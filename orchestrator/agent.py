@@ -30,6 +30,10 @@ logger = logging.getLogger("orchestrator")
 _THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 _ALERT_KEYS = ('"alert_id"', '"rule_name"', '"raw_payload"')
+_BUNDLE_MARKERS = ('"evidence_id"', '"EVD-', "EVD-")
+_PROSECUTION_MARKERS = ("MITRE ATT&CK", "real_incident", "REAL INCIDENT", "ATT&CK T")
+_DEFENSE_MARKERS = ("false_positive", "BENIGN", "false positive", "FALSE POSITIVE")
+_DISPOSITION_MARKERS = ('"verdict"', '"confidence"', '"severity_score"', '"requires_human_approval"')
 
 
 _AGENT_NAMES = ("triage", "prosecutor", "defender", "judge")
@@ -65,15 +69,17 @@ You are the Arbiter Orchestrator for a Security Operations Center adjudication s
 You coordinate the workflow — you do not perform analysis or issue verdicts.
 
 Agents in this system:
-- Triage (not yet deployed): enriches alerts, builds the EvidenceBundle with stable evidence_ids.
-- Prosecutor (not yet deployed): argues the alert is a real incident.
-- Defender (deployed): argues the alert is a false positive. Handle ends with /arbiter-defender.
-- Judge (not yet deployed): validates citations, scores severity, issues the Disposition.
+- Triage: enriches alerts, builds the EvidenceBundle with stable evidence_ids. Handle ends with /arbiter-triage.
+- Prosecutor: argues the alert is a real incident. Handle ends with /arbiter-prosecutor.
+- Defender: argues the alert is a false positive. Handle ends with /arbiter-defender.
+- Judge: validates citations, scores severity, issues the Disposition. Handle ends with /arbiter-judge.
 
-Current interim workflow:
+Workflow:
 1. When an alert JSON arrives, acknowledge it and open the case.
-2. Forward the alert to the Defender by mentioning them.
-3. Collect the Defender's position and hold it for the Judge.
+2. Forward the alert to the Triage agent.
+3. Once Triage posts the EvidenceBundle, forward it to both the Prosecutor and Defender in parallel.
+4. Once both Prosecutor and Defender have posted their arguments, forward the case to the Judge.
+5. Once the Judge issues the Disposition, close the case.
 
 Rules:
 - Never issue a verdict yourself.
@@ -86,10 +92,9 @@ WELCOME = (
     "I coordinate the security alert adjudication pipeline.\n\n"
     "**Stages:**\n"
     "1. 📥 Receive alert → open case\n"
-    "2. 🔍 Triage: enrich + build EvidenceBundle *(pending)*\n"
-    "3. ⚔️  Prosecutor + 🛡️ Defender: argue both sides in parallel "
-    "*(Defender ready, Prosecutor pending)*\n"
-    "4. ⚖️  Judge: validate citations, score severity, issue verdict *(pending)*\n\n"
+    "2. 🔍 Triage: enrich + build EvidenceBundle *(ready)*\n"
+    "3. ⚔️  Prosecutor + 🛡️ Defender: argue both sides in parallel *(ready)*\n"
+    "4. ⚖️  Judge: validate citations, score severity, issue verdict *(WIP)*\n\n"
     "Paste an alert JSON to begin."
 )
 
@@ -111,6 +116,10 @@ class OrchestratorAdapter(SimpleAdapter):
         super().__init__(history_converter=LangChainHistoryConverter())
         self.llm = llm
         self.self_id = self_id
+        # Case state machine — persists across on_message calls.
+        self._phase = "idle"  # idle | triage | debate | judging | done
+        self._debate_sides = set()
+        self._case_summary = []
 
     async def _participants(self, tools) -> list:
         parts = tools.get_participants()
@@ -137,6 +146,25 @@ class OrchestratorAdapter(SimpleAdapter):
                 return handle
         return None
 
+    async def _get_sender_role(self, tools, sender_id: str) -> str | None:
+        for p in await self._participants(tools):
+            if _field(p, "id") == sender_id:
+                handle = _field(p, "handle") or _field(p, "name") or ""
+                if handle.endswith("/arbiter-triage"):
+                    return "triage"
+                elif handle.endswith("/arbiter-prosecutor"):
+                    return "prosecutor"
+                elif handle.endswith("/arbiter-defender"):
+                    return "defender"
+                elif handle.endswith("/arbiter-judge"):
+                    return "judge"
+        return None
+
+    def _reset_case(self):
+        self._phase = "idle"
+        self._debate_sides = set()
+        self._case_summary = []
+
     async def on_message(
         self,
         msg,
@@ -148,7 +176,7 @@ class OrchestratorAdapter(SimpleAdapter):
         is_session_bootstrap: bool,
         room_id: str,
     ) -> None:
-        logger.info("[ORCHESTRATOR] handling %s in %s", msg.id, room_id)
+        logger.info("[ORCHESTRATOR] phase=%s handling %s in %s", self._phase, msg.id, room_id)
         user_text = msg.format_for_llm()
         messages = [("system", SYSTEM_PROMPT), *(history or []), ("user", user_text)]
 
@@ -157,38 +185,228 @@ class OrchestratorAdapter(SimpleAdapter):
 
             if is_session_bootstrap:
                 await tools.send_message(content=WELCOME, mentions=mentions or None)
+                return
 
-            thinking = _needs_thinking(user_text)
-            response = await self.llm.ainvoke(
-                messages,
-                extra_body={"chat_template_kwargs": {"enable_thinking": thinking}},
-            )
-            content = _clean(getattr(response, "content", str(response)))
-            if not content:
-                content = "Acknowledged. Routing alert through the adjudication pipeline."
+            sender_role = await self._get_sender_role(tools, msg.sender_id)
 
-            await tools.send_message(content=content, mentions=mentions or None)
+            # ── Phase 1: Alert received ──────────────────────────────────────
+            is_alert = any(k in user_text for k in _ALERT_KEYS) or any(d in user_text for d in ("DEMO-SCAN-001", "DEMO-TRAVEL-001", "DEMO-LSASS-001"))
+            if is_alert:
+                self._reset_case()
+                self._phase = "triage"
+                self._case_summary.append(user_text)
 
-            # If the message contains an alert payload, route it to the Defender.
-            if any(k in user_text for k in _ALERT_KEYS):
-                defender = await self._find_agent(tools, "/arbiter-defender")
-                if defender:
+                thinking = _needs_thinking(user_text)
+                response = await self.llm.ainvoke(
+                    messages,
+                    extra_body={"chat_template_kwargs": {"enable_thinking": thinking}},
+                )
+                content = _clean(getattr(response, "content", str(response)))
+                if not content:
+                    content = "**[ORCHESTRATOR]** New alert received. Opening case and routing to Triage."
+                await tools.send_message(content=content, mentions=mentions or None)
+
+                triage = await self._find_agent(tools, "/arbiter-triage")
+                if triage:
                     await tools.send_message(
                         content=(
-                            "**[ORCHESTRATOR → DEFENDER]** Alert received. "
-                            "Please review and provide your position.\n\n" + user_text
+                            "**[ORCHESTRATOR → TRIAGE]** New alert. "
+                            "Please enrich and produce the EvidenceBundle.\n\n" + user_text
                         ),
-                        mentions=[defender],
+                        mentions=[triage],
                     )
-                    logger.info("[ORCHESTRATOR] forwarded alert to %s", defender)
+                    logger.info("[ORCHESTRATOR] forwarded alert to Triage (%s)", triage)
                 else:
                     await tools.send_message(
                         content=(
-                            "⚠️ Defender not found in room. "
-                            "Add the Defender agent as a participant and resend the alert."
+                            "⚠️ Triage agent not found in room. "
+                            "Add the agent whose handle ends with `/arbiter-triage` and resend."
                         ),
                         mentions=mentions or None,
                     )
+                return
+
+            # ── Phase 2: EvidenceBundle from Triage ─────────────────────────
+            is_bundle = (sender_role == "triage") or ("EVIDENCE_BUNDLE_READY" in user_text) or (any(k in user_text for k in _BUNDLE_MARKERS) and self._phase == "triage")
+            if is_bundle and self._phase == "triage":
+                self._phase = "debate"
+                self._case_summary.append(user_text)
+
+                await tools.send_message(
+                    content="**[ORCHESTRATOR]** EvidenceBundle received. Forwarding to Prosecutor and Defender.",
+                    mentions=mentions or None,
+                )
+
+                prosecutor = await self._find_agent(tools, "/arbiter-prosecutor")
+                defender = await self._find_agent(tools, "/arbiter-defender")
+                missing = [r for r, h in [("Prosecutor", prosecutor), ("Defender", defender)] if not h]
+
+                if missing:
+                    await tools.send_message(
+                        content=(
+                            f"⚠️ Missing from room: {', '.join(missing)}. "
+                            "Add the missing agents and restart the case."
+                        ),
+                        mentions=mentions or None,
+                    )
+                    return
+
+                bundle_msg = (
+                    "**[ORCHESTRATOR → PROSECUTOR + DEFENDER]** "
+                    "EvidenceBundle ready. Argue your position.\n\n" + user_text
+                )
+                await tools.send_message(content=bundle_msg, mentions=[prosecutor, defender])
+                logger.info("[ORCHESTRATOR] forwarded bundle to Prosecutor + Defender")
+                return
+
+            # ── Phase 3: Debate — collect both sides ─────────────────────────
+            if self._phase == "debate":
+                is_prosecution = (sender_role == "prosecutor") or ("REAL INCIDENT" in user_text)
+                is_defense = (sender_role == "defender") or ("BENIGN" in user_text)
+
+                if is_prosecution:
+                    self._debate_sides.add("prosecution")
+                    self._case_summary.append(user_text)
+                    logger.info("[ORCHESTRATOR] prosecution argument received")
+
+                if is_defense:
+                    self._debate_sides.add("defense")
+                    self._case_summary.append(user_text)
+                    logger.info("[ORCHESTRATOR] defense argument received")
+
+                if self._debate_sides >= {"prosecution", "defense"}:
+                    self._phase = "judging"
+
+                    await tools.send_message(
+                        content="**[ORCHESTRATOR]** Both sides have argued. Forwarding to Judge.",
+                        mentions=mentions or None,
+                    )
+
+                    judge = await self._find_agent(tools, "/arbiter-judge")
+                    if judge:
+                        case_text = "\n\n---\n\n".join(self._case_summary)
+                        await tools.send_message(
+                            content=(
+                                "**[ORCHESTRATOR → JUDGE]** "
+                                "Complete case file follows. Please validate citations, "
+                                "score severity, and issue a Disposition.\n\n" + case_text
+                            ),
+                            mentions=[judge],
+                        )
+                        logger.info("[ORCHESTRATOR] forwarded case to Judge")
+                    else:
+                        await tools.send_message(
+                            content=(
+                                "⚠️ **[ORCHESTRATOR]** Judge agent not found in room. "
+                                "Adjudicating case internally (fallback mode)."
+                            ),
+                            mentions=mentions or None,
+                        )
+                        # Fallback Judge Logic
+                        try:
+                            from judge.agent import SYSTEM_PROMPT as JUDGE_SYSTEM_PROMPT
+                            from judge.agent import _clean as judge_clean
+                        except ImportError:
+                            JUDGE_SYSTEM_PROMPT = """\
+You are the Judge Agent for the Arbiter security adjudication system.
+
+You receive the Prosecutor's argument, the Defender's argument, and the original EvidenceBundle.
+
+Responsibilities:
+1. CITATION VALIDATION: Strike any claim citing an evidence_id not present in the EvidenceBundle.
+   A struck claim cannot be used in the verdict.
+2. EVIDENCE REQUEST: If a decisive question is unanswered, send the case back to Triage ONCE.
+   If still unanswered after re-enrichment, proceed with available evidence.
+3. SEVERITY SCORING (0-10 each dimension):
+   - evidence_strength (30%)
+   - asset_criticality (25%)
+   - mitre_severity (20%)
+   - blast_radius (15%)
+   - base_rate (10%)
+   Final score = weighted sum.
+4. VERDICT: Issue one of:
+   - real_incident — confirmed threat
+   - false_positive — benign activity
+   - escalate_human — evidence insufficient to decide; human SOC analyst needed
+   - needs_more_evidence — send back to Triage for one more enrichment pass
+5. ESCALATION: Set requires_human_approval=true when:
+   - verdict is real_incident AND severity score >= 7, OR
+   - any proposed action is disruptive (isolate host, disable credential, block production IP)
+   Nothing destructive executes without human sign-off.
+
+Output a Disposition JSON:
+{
+  "verdict": "<verdict>",
+  "confidence": 0.0-1.0,
+  "severity_score": 0.0-10.0,
+  "score_breakdown": {
+    "evidence_strength": 0.0,
+    "asset_criticality": 0.0,
+    "mitre_severity": 0.0,
+    "blast_radius": 0.0,
+    "base_rate": 0.0
+  },
+  "struck_claims": ["EVD-x cited by Prosecutor claim 2 — not in bundle"],
+  "reasoning": "...",
+  "requires_human_approval": false
+}
+
+Be calibrated. An honest low-confidence verdict beats a false certainty.
+"""
+                            import re
+                            _THINK_FALLBACK = re.compile(r"<think>.*?</think>", re.DOTALL)
+                            def judge_clean(text: str) -> str:
+                                return _THINK_FALLBACK.sub("", text or "").strip()
+
+                        case_text = "\n\n---\n\n".join(self._case_summary)
+                        judge_messages = [("system", JUDGE_SYSTEM_PROMPT), ("user", case_text)]
+
+                        logger.info("[ORCHESTRATOR] running fallback judge adjudication...")
+                        response = await self.llm.ainvoke(
+                            judge_messages,
+                            extra_body={"chat_template_kwargs": {"enable_thinking": True}},
+                        )
+                        disposition = judge_clean(getattr(response, "content", str(response)))
+                        if not disposition:
+                            disposition = "Could not produce a Disposition from the available arguments."
+
+                        await tools.send_message(content=disposition, mentions=mentions or None)
+                        logger.info("[ORCHESTRATOR] fallback adjudication complete")
+
+                        self._phase = "done"
+                        await tools.send_message(
+                            content="**[ORCHESTRATOR]** Case closed (internal fallback verdict).",
+                            mentions=mentions or None,
+                        )
+                return
+
+            # ── Phase 4: Disposition from Judge ──────────────────────────────
+            is_disposition = (sender_role == "judge") or any(k in user_text for k in ('"verdict"', '"confidence"', '"severity_score"', '"requires_human_approval"'))
+            if self._phase == "judging" and is_disposition:
+                self._phase = "done"
+                thinking = _needs_thinking(user_text)
+                response = await self.llm.ainvoke(
+                    messages,
+                    extra_body={"chat_template_kwargs": {"enable_thinking": thinking}},
+                )
+                content = _clean(getattr(response, "content", str(response)))
+                if not content:
+                    content = "**[ORCHESTRATOR]** Case closed. Judge has issued the Disposition above."
+                await tools.send_message(content=content, mentions=mentions or None)
+                logger.info("[ORCHESTRATOR] case closed")
+                return
+
+            # ── Default: general coordination message ─────────────────────────
+            if self._phase in ("idle", "done"):
+                thinking = _needs_thinking(user_text)
+                response = await self.llm.ainvoke(
+                    messages,
+                    extra_body={"chat_template_kwargs": {"enable_thinking": thinking}},
+                )
+                content = _clean(getattr(response, "content", str(response)))
+                if not content:
+                    content = "Acknowledged. Paste an alert JSON to open a case."
+                await tools.send_message(content=content, mentions=mentions or None)
 
         except Exception:
             logger.exception("[ORCHESTRATOR] failed on %s", msg.id)
@@ -206,10 +424,19 @@ async def main():
 
     agent_id, api_key = load_agent_config("my_agent")
 
+    model = (
+        os.getenv("FEATHERLESS_MODEL_ORCHESTRATOR")
+        or os.getenv("FEATHERLESS_MODEL")
+        or "Qwen/Qwen3-32B"
+    )
+    api_key = (
+        os.getenv("FEATHERLESS_API_KEY_ORCHESTRATOR")
+        or os.getenv("FEATHERLESS_API_KEY")
+    )
     llm = ChatOpenAI(
-        model="Qwen/Qwen3-32B",
+        model=model,
         base_url="https://api.featherless.ai/v1",
-        api_key=os.getenv("FEATHERLESS_API_KEY"),
+        api_key=api_key,
         temperature=0,
     )
 

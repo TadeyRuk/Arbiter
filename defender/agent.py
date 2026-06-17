@@ -21,7 +21,10 @@ from band.config import load_agent_config
 from band.core.simple_adapter import SimpleAdapter
 from band.converters.langchain import LangChainHistoryConverter
 
-from defense import ROOM_PROMPT
+try:
+    from .defense import ROOM_PROMPT
+except ImportError:
+    from defense import ROOM_PROMPT
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("defender")
@@ -132,10 +135,15 @@ async def main():
     agent_id, api_key = load_agent_config("defender_agent")
 
     # enable_thinking=False stops Qwen3 emitting a <think> block at all.
+    model = (
+        os.getenv("FEATHERLESS_MODEL_DEFENDER")
+        or os.getenv("FEATHERLESS_MODEL")
+        or "Qwen/Qwen3-32B"
+    )
     llm = ChatOpenAI(
-        model="Qwen/Qwen3-32B",
+        model=model,
         base_url="https://api.featherless.ai/v1",
-        api_key=os.getenv("FEATHERLESS_API_KEY"),
+        api_key=os.getenv("FEATHERLESS_API_KEY_DEFENDER") or os.getenv("FEATHERLESS_API_KEY"),
         temperature=0,
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
