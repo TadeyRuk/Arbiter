@@ -1,0 +1,70 @@
+{
+  "alert_id": "DEMO-LSASS-001",
+  "raw_alert": {
+    "id": "DEMO-LSASS-001",
+    "timestamp": "2026-06-15T19:45:33Z",
+    "alert_type": "EDR",
+    "source_host": "ws-finance-04",
+    "raw_payload": {
+      "alert_id": "DEMO-LSASS-001",
+      "source": "EDR",
+      "rule_name": "LSASS_CREDENTIAL_DUMP",
+      "process": "rundll32.exe",
+      "pid": 4821,
+      "parent_process": "cmd.exe",
+      "parent_pid": 4800,
+      "command_line": "rundll32.exe C:\\Windows\\Temp\\srv.dll,#1",
+      "target_process": "lsass.exe",
+      "target_pid": 844,
+      "access_rights": "0x1FFFFF",
+      "user": "FINANCE\\svc-backup",
+      "host": "ws-finance-04",
+      "file_dropped": "C:\\Windows\\Temp\\srv.dll",
+      "file_hash_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "asset": {
+    "hostname": "ws-finance-04",
+    "ip": "10.20.4.44",
+    "owner_team": "Finance IT",
+    "environment": "production",
+    "criticality_tier": "critical",
+    "is_known_scanner": false
+  },
+  "baseline": {
+    "host": "ws-finance-04",
+    "event_type": "credential_access",
+    "baseline_normal": false,
+    "deviation_score": 0.93,
+    "baseline_description": "The host has no normal baseline for rundll32.exe opening lsass.exe with full access rights."
+  },
+  "geo": {},
+  "lineage": {
+    "available": true,
+    "lineage": [
+      {
+        "pid": 4800,
+        "name": "cmd.exe",
+        "cmdline": "cmd.exe /c rundll32.exe C:\\Windows\\Temp\\srv.dll,#1",
+        "parent_pid": 1104,
+        "parent_name": "explorer.exe"
+      },
+      {
+        "pid": 4821,
+        "name": "rundll32.exe",
+        "cmdline": "rundll32.exe C:\\Windows\\Temp\\srv.dll,#1",
+        "parent_pid": 4800,
+        "parent_name": "cmd.exe"
+      },
+      {
+        "pid": 844,
+        "name": "lsass.exe",
+        "cmdline": "C:\\Windows\\System32\\lsass.exe",
+        "parent_pid": 632,
+        "parent_name": "wininit.exe"
+      }
+    ]
+  },
+  "mitre_candidates": ["T1003.001"],
+  "behaviors": ["lsass_access", "credential_dumping", "rundll32"]
+}

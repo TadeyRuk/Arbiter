@@ -1,0 +1,44 @@
+{
+  "alert_id": "DEMO-SCAN-001",
+  "raw_alert": {
+    "id": "DEMO-SCAN-001",
+    "timestamp": "2026-06-15T08:03:12Z",
+    "alert_type": "IDS",
+    "source_host": "nessus-scanner-01",
+    "raw_payload": {
+      "alert_id": "DEMO-SCAN-001",
+      "source": "IDS",
+      "rule_name": "PORT_SCAN_DETECTED",
+      "src_ip": "10.10.5.22",
+      "src_host": "nessus-scanner-01",
+      "dst_ip": "10.10.1.0/24",
+      "ports_scanned": [22, 80, 443, 3306, 5432],
+      "scan_type": "SYN",
+      "packets": 312,
+      "duration_seconds": 4,
+      "scheduled_window": "08:00-09:00 UTC Mon-Fri"
+    }
+  },
+  "asset": {
+    "hostname": "nessus-scanner-01",
+    "ip": "10.10.5.22",
+    "owner_team": "Security Engineering",
+    "environment": "production",
+    "criticality_tier": "medium",
+    "is_known_scanner": true
+  },
+  "baseline": {
+    "host": "nessus-scanner-01",
+    "event_type": "port_scan",
+    "baseline_normal": true,
+    "deviation_score": 0.05,
+    "baseline_description": "Internal Nessus scanner performs scheduled port scans during the weekday 08:00-09:00 UTC window."
+  },
+  "geo": {},
+  "lineage": {
+    "lineage": [],
+    "available": false
+  },
+  "mitre_candidates": [],
+  "behaviors": ["authorized_scanner", "port_scan"]
+}

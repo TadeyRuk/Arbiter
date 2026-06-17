@@ -1,0 +1,67 @@
+{
+  "alert_id": "DEMO-TRAVEL-001",
+  "raw_alert": {
+    "id": "DEMO-TRAVEL-001",
+    "timestamp": "2026-06-15T15:40:00Z",
+    "alert_type": "AUTH",
+    "source_host": "idp-login-stream",
+    "raw_payload": {
+      "alert_id": "DEMO-TRAVEL-001",
+      "source": "AUTH",
+      "rule_name": "IMPOSSIBLE_TRAVEL_LOGIN",
+      "user": "jsmith@corp.com",
+      "login_1": {
+        "timestamp": "2026-06-15T14:10:00Z",
+        "ip": "203.0.113.45",
+        "device": "MacBook-jsmith",
+        "mfa": true
+      },
+      "login_2": {
+        "timestamp": "2026-06-15T15:40:00Z",
+        "ip": "198.51.100.12",
+        "device": "Unknown-Windows",
+        "mfa": false
+      },
+      "travel_time_minutes": 90
+    }
+  },
+  "asset": {
+    "hostname": "user-jsmith",
+    "ip": null,
+    "owner_team": "Corporate IT",
+    "environment": "identity",
+    "criticality_tier": "medium",
+    "is_known_scanner": false
+  },
+  "baseline": {
+    "host": "user-jsmith",
+    "event_type": "impossible_travel",
+    "baseline_normal": false,
+    "deviation_score": 0.97,
+    "baseline_description": "The user normally authenticates from US corporate networks and has no recent history of RU logins."
+  },
+  "geo": {
+    "203.0.113.45": {
+      "ip": "203.0.113.45",
+      "country": "US",
+      "city": "New York",
+      "asn": "AS64510",
+      "is_vpn_exit": false,
+      "is_tor": false
+    },
+    "198.51.100.12": {
+      "ip": "198.51.100.12",
+      "country": "RU",
+      "city": "Moscow",
+      "asn": "AS64511",
+      "is_vpn_exit": false,
+      "is_tor": false
+    }
+  },
+  "lineage": {
+    "lineage": [],
+    "available": false
+  },
+  "mitre_candidates": ["T1078"],
+  "behaviors": ["impossible_travel", "valid_accounts"]
+}
