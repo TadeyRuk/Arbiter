@@ -5,6 +5,7 @@ Validates citations, scores severity, issues verdict, gates human escalation.
 import asyncio
 import logging
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
@@ -13,6 +14,9 @@ from band.adapters import LangGraphAdapter
 from band.config import load_agent_config
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("judge")
+JUDGE_DIR = Path(__file__).resolve().parent
+AGENT_CONFIG_PATH = JUDGE_DIR / "agent_config.yaml"
 
 SYSTEM_PROMPT = """\
 You are the Judge Agent for the Arbiter security adjudication system.
@@ -99,7 +103,7 @@ class JudgePreprocessor(DefaultPreprocessor):
 async def main():
     load_dotenv()
 
-    agent_id, api_key = load_agent_config("judge_agent")
+    agent_id, api_key = load_agent_config("judge_agent", config_path=AGENT_CONFIG_PATH)
 
     model = (
         os.getenv("FEATHERLESS_MODEL_JUDGE")

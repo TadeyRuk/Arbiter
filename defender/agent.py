@@ -12,6 +12,7 @@ import asyncio
 import inspect
 import logging
 import os
+from pathlib import Path
 import re
 
 from dotenv import load_dotenv
@@ -28,6 +29,8 @@ except ImportError:
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("defender")
+DEFENDER_DIR = Path(__file__).resolve().parent
+AGENT_CONFIG_PATH = DEFENDER_DIR / "agent_config.yaml"
 
 _THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
 
@@ -64,7 +67,7 @@ class DefenderAdapter(SimpleAdapter):
     """Prompt the LLM with room history, post the answer.
 
     Band requires every sent message to @mention at least one participant, so
-    every reply is addressed to everyone in the room except the agent itself.
+    replies are addressed to the requester instead of broadcasting to the room.
     """
 
     def __init__(self, llm, self_id: str):
@@ -88,6 +91,41 @@ class DefenderAdapter(SimpleAdapter):
                 handles.append(handle)
         return handles
 
+    async def _participants(self, tools) -> list:
+        parts = tools.get_participants()
+        if inspect.isawaitable(parts):
+            parts = await parts
+        return parts or []
+
+    def _is_agent_handle(self, handle: str | None) -> bool:
+        return bool(
+            handle
+            and handle.endswith(
+                (
+                    "/arbiter-orchestrator",
+                    "/arbiter-triage",
+                    "/arbiter-prosecutor",
+                    "/arbiter-defender",
+                    "/arbiter-judge",
+                )
+            )
+        )
+
+    async def _reply_mentions(self, tools, sender_id: str | None = None) -> list[str]:
+        parts = await self._participants(tools)
+        if sender_id and sender_id != self.self_id:
+            for p in parts:
+                if _field(p, "id") == sender_id:
+                    handle = _field(p, "handle") or _field(p, "name")
+                    if handle:
+                        return [handle]
+
+        for p in parts:
+            handle = _field(p, "handle") or _field(p, "name")
+            if handle and not self._is_agent_handle(handle):
+                return [handle]
+        return []
+
     async def on_message(
         self,
         msg,
@@ -106,18 +144,14 @@ class DefenderAdapter(SimpleAdapter):
             logger.info("[DEFENDER] ignoring message %s (sent by self)", msg.id)
             return
 
-        # Fetch mentions/others
-        mentions = await self._others(tools)
-
         # 1. Greeting once on bootstrap, then exit immediately to prevent runaway loop at start
         if is_session_bootstrap:
+            mentions = await self._reply_mentions(tools, msg.sender_id)
             await tools.send_message(content=WELCOME, mentions=mentions or None)
             return
 
         # Check if sender is another agent we shouldn't listen to directly (Triage, Prosecutor, Judge)
-        parts = tools.get_participants()
-        if inspect.isawaitable(parts):
-            parts = await parts
+        parts = await self._participants(tools)
         
         sender_handle = None
         for p in parts or []:
@@ -151,6 +185,7 @@ class DefenderAdapter(SimpleAdapter):
             return
 
         user_text = msg.format_for_llm()
+        mentions = await self._reply_mentions(tools, msg.sender_id)
         # System prompt, prior room turns, then the new message — so the agent
         # has context and won't treat a bare "hello" as an alert to adjudicate.
         messages = [("system", ROOM_PROMPT), *(history or []), ("user", user_text)]
@@ -169,7 +204,7 @@ class DefenderAdapter(SimpleAdapter):
             try:
                 await tools.send_message(
                     content="Internal error while arguing this alert; see agent logs.",
-                    mentions=(await self._others(tools)) or None,
+                    mentions=(await self._reply_mentions(tools, msg.sender_id)) or None,
                 )
             except Exception:
                 logger.exception("[DEFENDER] error-reply also failed on %s", msg.id)
@@ -178,7 +213,7 @@ class DefenderAdapter(SimpleAdapter):
 async def main():
     load_dotenv()
 
-    agent_id, api_key = load_agent_config("defender_agent")
+    agent_id, api_key = load_agent_config("defender_agent", config_path=AGENT_CONFIG_PATH)
 
     # enable_thinking=False stops Qwen3 emitting a <think> block at all.
     model = (

@@ -13,8 +13,10 @@ Current workflow (Triage / Prosecutor / Judge not yet deployed):
 """
 import asyncio
 import inspect
+import json
 import logging
 import os
+from pathlib import Path
 import re
 
 from dotenv import load_dotenv
@@ -26,6 +28,8 @@ from band.converters.langchain import LangChainHistoryConverter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("orchestrator")
+ORCHESTRATOR_DIR = Path(__file__).resolve().parent
+AGENT_CONFIG_PATH = ORCHESTRATOR_DIR / "agent_config.yaml"
 
 _THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
 
@@ -37,6 +41,13 @@ _DISPOSITION_MARKERS = ('"verdict"', '"confidence"', '"severity_score"', '"requi
 
 
 _AGENT_NAMES = ("triage", "prosecutor", "defender", "judge")
+_AGENT_HANDLE_SUFFIXES = (
+    "/arbiter-orchestrator",
+    "/arbiter-triage",
+    "/arbiter-prosecutor",
+    "/arbiter-defender",
+    "/arbiter-judge",
+)
 
 # Tokens are ~4 chars; 600 chars ≈ 150 tokens — long enough to warrant deep reasoning.
 _THINKING_CHAR_THRESHOLD = 600
@@ -109,6 +120,37 @@ def _field(p, key):
     return getattr(p, key, None)
 
 
+def _message_content(msg) -> str:
+    return getattr(msg, "content", None) or msg.format_for_llm()
+
+
+def _json_payload(text: str) -> dict | None:
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    if not raw.startswith("{"):
+        start = raw.find("{")
+        if start == -1:
+            return None
+        raw = raw[start:]
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _is_explicit_alert(text: str) -> bool:
+    payload = _json_payload(text)
+    if payload:
+        return bool(payload.get("alert_id") and payload.get("rule_name"))
+    return (text or "").strip() in {"DEMO-SCAN-001", "DEMO-TRAVEL-001", "DEMO-LSASS-001"}
+
+
+def _is_agent_handle(handle: str | None) -> bool:
+    return bool(handle and handle.endswith(_AGENT_HANDLE_SUFFIXES))
+
+
 class OrchestratorAdapter(SimpleAdapter):
     """Coordinate the adjudication workflow and post all messages explicitly."""
 
@@ -136,6 +178,14 @@ class OrchestratorAdapter(SimpleAdapter):
                 or (handle or "").endswith("/arbiter-orchestrator")
             )
             if handle and not is_self:
+                handles.append(handle)
+        return handles
+
+    async def _humans(self, tools) -> list[str]:
+        handles = []
+        for p in await self._participants(tools):
+            handle = _field(p, "handle") or _field(p, "name")
+            if handle and not _is_agent_handle(handle):
                 handles.append(handle)
         return handles
 
@@ -184,25 +234,31 @@ class OrchestratorAdapter(SimpleAdapter):
             return
 
         user_text = msg.format_for_llm()
+        current_text = _message_content(msg)
         messages = [("system", SYSTEM_PROMPT), *(history or []), ("user", user_text)]
 
         try:
-            mentions = await self._others(tools)
+            human_mentions = await self._humans(tools)
 
             if is_session_bootstrap:
-                await tools.send_message(content=WELCOME, mentions=mentions or None)
+                await tools.send_message(content=WELCOME, mentions=human_mentions or None)
                 return
 
             sender_role = await self._get_sender_role(tools, msg.sender_id)
 
+            # Ignore messages from other agents when in idle or done phase
+            if self._phase in ("idle", "done") and sender_role is not None:
+                logger.info("[ORCHESTRATOR] ignoring message %s from agent %s in %s phase", msg.id, sender_role, self._phase)
+                return
+
             # ── Phase 1: Alert received ──────────────────────────────────────
-            is_alert = any(k in user_text for k in _ALERT_KEYS) or any(d in user_text for d in ("DEMO-SCAN-001", "DEMO-TRAVEL-001", "DEMO-LSASS-001"))
+            is_alert = sender_role is None and _is_explicit_alert(current_text)
             if is_alert:
                 self._reset_case()
                 self._phase = "triage"
-                self._case_summary.append(user_text)
+                self._case_summary.append(current_text)
 
-                thinking = _needs_thinking(user_text)
+                thinking = _needs_thinking(current_text)
                 response = await self.llm.ainvoke(
                     messages,
                     extra_body={"chat_template_kwargs": {"enable_thinking": thinking}},
@@ -210,14 +266,14 @@ class OrchestratorAdapter(SimpleAdapter):
                 content = _clean(getattr(response, "content", str(response)))
                 if not content:
                     content = "**[ORCHESTRATOR]** New alert received. Opening case and routing to Triage."
-                await tools.send_message(content=content, mentions=mentions or None)
+                await tools.send_message(content=content, mentions=human_mentions or None)
 
                 triage = await self._find_agent(tools, "/arbiter-triage")
                 if triage:
                     await tools.send_message(
                         content=(
                             "**[ORCHESTRATOR → TRIAGE]** New alert. "
-                            "Please enrich and produce the EvidenceBundle.\n\n" + user_text
+                            "Please enrich and produce the EvidenceBundle.\n\n" + current_text
                         ),
                         mentions=[triage],
                     )
@@ -228,7 +284,7 @@ class OrchestratorAdapter(SimpleAdapter):
                             "⚠️ Triage agent not found in room. "
                             "Add the agent whose handle ends with `/arbiter-triage` and resend."
                         ),
-                        mentions=mentions or None,
+                        mentions=human_mentions or None,
                     )
                 return
 
@@ -240,7 +296,7 @@ class OrchestratorAdapter(SimpleAdapter):
 
                 await tools.send_message(
                     content="**[ORCHESTRATOR]** EvidenceBundle received. Forwarding to Prosecutor and Defender.",
-                    mentions=mentions or None,
+                    mentions=human_mentions or None,
                 )
 
                 prosecutor = await self._find_agent(tools, "/arbiter-prosecutor")
@@ -253,20 +309,36 @@ class OrchestratorAdapter(SimpleAdapter):
                             f"⚠️ Missing from room: {', '.join(missing)}. "
                             "Add the missing agents and restart the case."
                         ),
-                        mentions=mentions or None,
+                        mentions=human_mentions or None,
                     )
                     return
 
-                bundle_msg = (
-                    "**[ORCHESTRATOR → PROSECUTOR + DEFENDER]** "
-                    "EvidenceBundle ready. Argue your position.\n\n" + user_text
+                await tools.send_message(
+                    content=(
+                        "**[ORCHESTRATOR → PROSECUTOR]** "
+                        "EvidenceBundle ready. Argue the real-incident position.\n\n" + user_text
+                    ),
+                    mentions=[prosecutor],
                 )
-                await tools.send_message(content=bundle_msg, mentions=[prosecutor, defender])
+                await tools.send_message(
+                    content=(
+                        "**[ORCHESTRATOR → DEFENDER]** "
+                        "EvidenceBundle ready. Argue the false-positive position.\n\n" + user_text
+                    ),
+                    mentions=[defender],
+                )
                 logger.info("[ORCHESTRATOR] forwarded bundle to Prosecutor + Defender")
                 return
 
             # ── Phase 3: Debate — collect both sides ─────────────────────────
             if self._phase == "debate":
+                if "Internal error" in user_text:
+                    logger.warning(
+                        "[ORCHESTRATOR] received agent error from %s; waiting for a real argument",
+                        sender_role or "unknown sender",
+                    )
+                    return
+
                 is_prosecution = (sender_role == "prosecutor") or ("REAL INCIDENT" in user_text)
                 is_defense = (sender_role == "defender") or ("BENIGN" in user_text)
 
@@ -285,7 +357,7 @@ class OrchestratorAdapter(SimpleAdapter):
 
                     await tools.send_message(
                         content="**[ORCHESTRATOR]** Both sides have argued. Forwarding to Judge.",
-                        mentions=mentions or None,
+                        mentions=human_mentions or None,
                     )
 
                     judge = await self._find_agent(tools, "/arbiter-judge")
@@ -306,7 +378,7 @@ class OrchestratorAdapter(SimpleAdapter):
                                 "⚠️ **[ORCHESTRATOR]** Judge agent not found in room. "
                                 "Adjudicating case internally (fallback mode)."
                             ),
-                            mentions=mentions or None,
+                            mentions=human_mentions or None,
                         )
                         # Fallback Judge Logic
                         try:
@@ -376,13 +448,13 @@ Be calibrated. An honest low-confidence verdict beats a false certainty.
                         if not disposition:
                             disposition = "Could not produce a Disposition from the available arguments."
 
-                        await tools.send_message(content=disposition, mentions=mentions or None)
+                        await tools.send_message(content=disposition, mentions=human_mentions or None)
                         logger.info("[ORCHESTRATOR] fallback adjudication complete")
 
                         self._phase = "done"
                         await tools.send_message(
                             content="**[ORCHESTRATOR]** Case closed (internal fallback verdict).",
-                            mentions=mentions or None,
+                            mentions=human_mentions or None,
                         )
                 return
 
@@ -398,28 +470,23 @@ Be calibrated. An honest low-confidence verdict beats a false certainty.
                 content = _clean(getattr(response, "content", str(response)))
                 if not content:
                     content = "**[ORCHESTRATOR]** Case closed. Judge has issued the Disposition above."
-                await tools.send_message(content=content, mentions=mentions or None)
+                await tools.send_message(content=content, mentions=human_mentions or None)
                 logger.info("[ORCHESTRATOR] case closed")
                 return
 
             # ── Default: general coordination message ─────────────────────────
             if self._phase in ("idle", "done"):
-                thinking = _needs_thinking(user_text)
-                response = await self.llm.ainvoke(
-                    messages,
-                    extra_body={"chat_template_kwargs": {"enable_thinking": thinking}},
+                await tools.send_message(
+                    content="Acknowledged. Paste an alert JSON with `alert_id` and `rule_name` to open a case.",
+                    mentions=human_mentions or None,
                 )
-                content = _clean(getattr(response, "content", str(response)))
-                if not content:
-                    content = "Acknowledged. Paste an alert JSON to open a case."
-                await tools.send_message(content=content, mentions=mentions or None)
 
         except Exception:
             logger.exception("[ORCHESTRATOR] failed on %s", msg.id)
             try:
                 await tools.send_message(
                     content="Internal error in Orchestrator; see agent logs.",
-                    mentions=(await self._others(tools)) or None,
+                    mentions=(await self._humans(tools)) or None,
                 )
             except Exception:
                 logger.exception("[ORCHESTRATOR] error-reply also failed on %s", msg.id)
@@ -428,28 +495,31 @@ Be calibrated. An honest low-confidence verdict beats a false certainty.
 async def main():
     load_dotenv()
 
-    agent_id, api_key = load_agent_config("my_agent")
+    agent_id, band_api_key = load_agent_config("my_agent", config_path=AGENT_CONFIG_PATH)
 
     model = (
         os.getenv("FEATHERLESS_MODEL_ORCHESTRATOR")
         or os.getenv("FEATHERLESS_MODEL")
         or "Qwen/Qwen3-32B"
     )
-    api_key = (
+    featherless_api_key = (
         os.getenv("FEATHERLESS_API_KEY_ORCHESTRATOR")
         or os.getenv("FEATHERLESS_API_KEY")
     )
+    if not featherless_api_key:
+        raise RuntimeError("Missing FEATHERLESS_API_KEY_ORCHESTRATOR or FEATHERLESS_API_KEY")
+
     llm = ChatOpenAI(
         model=model,
         base_url="https://api.featherless.ai/v1",
-        api_key=api_key,
+        api_key=featherless_api_key,
         temperature=0,
     )
 
     agent = Agent.create(
         adapter=OrchestratorAdapter(llm, self_id=agent_id),
         agent_id=agent_id,
-        api_key=api_key,
+        api_key=band_api_key,
         ws_url=os.getenv("THENVOI_WS_URL"),
         rest_url=os.getenv("THENVOI_REST_URL"),
     )

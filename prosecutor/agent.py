@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import logging
 import os
+from pathlib import Path
 import re
 
 from dotenv import load_dotenv
@@ -22,6 +23,8 @@ except ImportError:
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("prosecutor")
+PROSECUTOR_DIR = Path(__file__).resolve().parent
+AGENT_CONFIG_PATH = PROSECUTOR_DIR / "agent_config.yaml"
 
 _THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
 
@@ -74,6 +77,41 @@ class ProsecutorAdapter(SimpleAdapter):
                 handles.append(handle)
         return handles
 
+    async def _participants(self, tools) -> list:
+        parts = tools.get_participants()
+        if inspect.isawaitable(parts):
+            parts = await parts
+        return parts or []
+
+    def _is_agent_handle(self, handle: str | None) -> bool:
+        return bool(
+            handle
+            and handle.endswith(
+                (
+                    "/arbiter-orchestrator",
+                    "/arbiter-triage",
+                    "/arbiter-prosecutor",
+                    "/arbiter-defender",
+                    "/arbiter-judge",
+                )
+            )
+        )
+
+    async def _reply_mentions(self, tools, sender_id: str | None = None) -> list[str]:
+        parts = await self._participants(tools)
+        if sender_id and sender_id != self.self_id:
+            for p in parts:
+                if _field(p, "id") == sender_id:
+                    handle = _field(p, "handle") or _field(p, "name")
+                    if handle:
+                        return [handle]
+
+        for p in parts:
+            handle = _field(p, "handle") or _field(p, "name")
+            if handle and not self._is_agent_handle(handle):
+                return [handle]
+        return []
+
     async def on_message(
         self,
         msg,
@@ -92,18 +130,14 @@ class ProsecutorAdapter(SimpleAdapter):
             logger.info("[PROSECUTOR] ignoring message %s (sent by self)", msg.id)
             return
 
-        # Fetch mentions/others
-        mentions = await self._others(tools)
-
         # 1. Greeting once on bootstrap, then exit immediately to prevent runaway loop at start
         if is_session_bootstrap:
+            mentions = await self._reply_mentions(tools, msg.sender_id)
             await tools.send_message(content=WELCOME, mentions=mentions or None)
             return
 
         # Check if sender is another agent we shouldn't listen to directly (Triage, Defender, Judge)
-        parts = tools.get_participants()
-        if inspect.isawaitable(parts):
-            parts = await parts
+        parts = await self._participants(tools)
         
         sender_handle = None
         for p in parts or []:
@@ -137,6 +171,7 @@ class ProsecutorAdapter(SimpleAdapter):
             return
 
         user_text = msg.format_for_llm()
+        mentions = await self._reply_mentions(tools, msg.sender_id)
         messages = [("system", ROOM_PROMPT), *(history or []), ("user", user_text)]
         try:
             response = await self.llm.ainvoke(messages)
@@ -153,7 +188,7 @@ class ProsecutorAdapter(SimpleAdapter):
             try:
                 await tools.send_message(
                     content="Internal error while arguing this alert; see agent logs.",
-                    mentions=(await self._others(tools)) or None,
+                    mentions=(await self._reply_mentions(tools, msg.sender_id)) or None,
                 )
             except Exception:
                 logger.exception("[PROSECUTOR] error-reply also failed on %s", msg.id)
@@ -162,7 +197,7 @@ class ProsecutorAdapter(SimpleAdapter):
 async def main():
     load_dotenv()
 
-    agent_id, api_key = load_agent_config("prosecutor_agent")
+    agent_id, api_key = load_agent_config("prosecutor_agent", config_path=AGENT_CONFIG_PATH)
 
     while True:
         model = (
