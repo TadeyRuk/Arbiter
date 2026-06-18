@@ -30,12 +30,23 @@ except ImportError:  # pragma: no cover - supports `python triage/agent.py`.
     from schemas import Evidence, TriageSupplementRequest
     from tools import SCENARIOS, TRIAGE_TOOLS, _build_and_post_bundle_impl
 
+import inspect
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 EVD_ID_RE = re.compile(r"EVD-[0-9a-f]{6}-\d{3}")
-DEMO_ALERT_ID_RE = re.compile(r"\bDEMO-(?:SCAN|TRAVEL|LSASS)-001\b")
 TRIAGE_DIR = Path(__file__).resolve().parent
 AGENT_CONFIG_PATH = TRIAGE_DIR / "agent_config.yaml"
+
+def _field(p, key):
+    if isinstance(p, dict):
+        return p.get(key)
+    return getattr(p, key, None)
+
+
+def _msg_text(msg: Any) -> str:
+    """Return message text, falling back to format_for_llm() when content is None."""
+    return getattr(msg, "content", None) or msg.format_for_llm()
 
 
 SYSTEM_PROMPT = """
@@ -97,7 +108,8 @@ def _json_from_message(message: Any) -> dict[str, Any] | None:
         return None
 
     try:
-        return json.loads(text)
+        payload, _ = json.JSONDecoder().raw_decode(text)
+        return payload if isinstance(payload, dict) else None
     except json.JSONDecodeError:
         return None
 
@@ -266,97 +278,6 @@ async def _send_room_visible_content(
     )
 
 
-async def _send_demo_bundle(tools: Any, room_id: str, agent_id: str, sender_id: str | None, alert_id: str) -> None:
-    bundle = _build_and_post_bundle_impl(SCENARIOS[alert_id], alert_id)
-    content = "EVIDENCE_BUNDLE_READY\n" + json.dumps(bundle, indent=2)
-    await _send_room_visible_content(tools, room_id, agent_id, content, sender_id)
-    logger.info(
-        "Room %s: posted deterministic evidence bundle for %s without LLM orchestration",
-        room_id,
-        alert_id,
-    )
-
-
-async def _send_direct_supplement(
-    tools: Any,
-    room_id: str,
-    agent_id: str,
-    sender_id: str | None,
-    payload: dict[str, Any],
-) -> bool:
-    if payload.get("type") != "JUDGE_REQUESTS_CLARIFICATION":
-        return False
-
-    request = TriageSupplementRequest.model_validate(payload)
-    alert_id = payload.get("alert_id") or _alert_id_for_bundle(request.original_bundle_id)
-    if not alert_id:
-        logger.warning("Room %s: could not map supplement request to alert_id", room_id)
-        return False
-
-    supplement = _build_direct_supplement(payload, alert_id)
-    content = "TRIAGE_SUPPLEMENT\n" + json.dumps(supplement, indent=2)
-    await _send_room_visible_content(tools, room_id, agent_id, content, sender_id)
-    logger.info(
-        "Room %s: posted deterministic triage supplement for %s without LLM orchestration",
-        room_id,
-        alert_id,
-    )
-    return True
-
-
-async def _handle_demo_alert_directly(agent_input: Any, agent_id: str) -> bool:
-    match = DEMO_ALERT_ID_RE.search(agent_input.msg.content or "")
-    if not match:
-        return False
-
-    alert_id = match.group(0)
-    await _send_demo_bundle(
-        agent_input.tools,
-        agent_input.room_id,
-        agent_id,
-        agent_input.msg.sender_id,
-        alert_id,
-    )
-    return True
-
-
-async def _handle_demo_event_before_langgraph(ctx: Any, event: Any, agent_id: str) -> bool:
-    msg_data = getattr(event, "payload", None)
-    room_id = getattr(event, "room_id", None)
-    content = getattr(msg_data, "content", "") if msg_data is not None else ""
-    if not room_id:
-        return False
-
-    if getattr(msg_data, "sender_type", None) == "Agent" and getattr(msg_data, "sender_id", None) == agent_id:
-        return True
-
-    await ctx.load_participants()
-    tools = AgentTools.from_context(ctx)
-
-    payload = _json_from_message(content)
-    if payload and await _send_direct_supplement(
-        tools,
-        room_id,
-        agent_id,
-        getattr(msg_data, "sender_id", None),
-        payload,
-    ):
-        return True
-
-    match = DEMO_ALERT_ID_RE.search(content or "")
-    if not match:
-        return False
-
-    await _send_demo_bundle(
-        tools,
-        room_id,
-        agent_id,
-        getattr(msg_data, "sender_id", None),
-        match.group(0),
-    )
-    return True
-
-
 class TriagePreprocessor:
     """Band preprocessor that turns Judge clarification JSON into a re-triage prompt."""
 
@@ -364,17 +285,36 @@ class TriagePreprocessor:
         self._inner = DefaultPreprocessor()
 
     async def process(self, ctx: Any, event: Any, agent_id: str) -> Any:
-        if await _handle_demo_event_before_langgraph(ctx, event, agent_id):
-            return None
-
         agent_input = await self._inner.process(ctx=ctx, event=event, agent_id=agent_id)
         if agent_input is None:
             return None
 
-        if await _handle_demo_alert_directly(agent_input, agent_id):
+        # 0. Ignore messages sent by self
+        if agent_input.msg.sender_id == agent_id:
+            logger.info("Triage agent ignoring message %s (sent by self)", agent_input.msg.id)
             return None
 
-        payload = _json_from_message(agent_input.msg.content)
+        # Ignore messages from peer agents (Prosecutor, Defender) — DefaultPreprocessor
+        # already gates on Band's mention system, so any non-None agent_input is targeted.
+        tools = agent_input.tools
+        parts = tools.get_participants()
+        if inspect.isawaitable(parts):
+            parts = await parts
+
+        sender_handle = None
+        for p in parts or []:
+            if _field(p, "id") == agent_input.msg.sender_id:
+                sender_handle = _field(p, "handle") or _field(p, "name")
+                break
+
+        if sender_handle:
+            sh_lower = sender_handle.lower()
+            if sh_lower.endswith("/prosecuter") or sh_lower.endswith("/defender"):
+                logger.info("Triage agent ignoring message %s (sent by other agent %s)", agent_input.msg.id, sender_handle)
+                return None
+
+        msg_text = _msg_text(agent_input.msg)
+        payload = _json_from_message(msg_text)
         if not payload or payload.get("type") != "JUDGE_REQUESTS_CLARIFICATION":
             return agent_input
 
@@ -392,10 +332,15 @@ async def main():
 
     agent_id, api_key = load_agent_config("triage_agent", config_path=AGENT_CONFIG_PATH)
 
+    model = (
+        os.getenv("FEATHERLESS_MODEL_TRIAGE")
+        or os.getenv("FEATHERLESS_MODEL")
+        or "Qwen/Qwen3-32B"
+    )
     llm = ChatOpenAI(
-        model="Qwen/Qwen3-32B",
+        model=model,
         base_url="https://api.featherless.ai/v1",
-        api_key=os.getenv("FEATHERLESS_API_KEY"),
+        api_key=os.getenv("FEATHERLESS_API_KEY_TRIAGE") or os.getenv("FEATHERLESS_API_KEY"),
     )
 
     adapter = LangGraphAdapter(

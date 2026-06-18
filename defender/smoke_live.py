@@ -30,16 +30,20 @@ EXPECTED = {
 
 def main() -> int:
     load_dotenv(_REPO_ROOT / ".env")
-    if not os.getenv("FEATHERLESS_API_KEY"):
-        print("FEATHERLESS_API_KEY not set in Arbiter/.env — cannot run live smoke.")
+    api_key = os.getenv("FEATHERLESS_API_KEY_DEFENDER") or os.getenv("FEATHERLESS_API_KEY")
+    if not api_key:
+        print("Neither FEATHERLESS_API_KEY_DEFENDER nor FEATHERLESS_API_KEY set in Arbiter/.env — cannot run live smoke.")
         return 2
 
-    from langchain_openai import ChatOpenAI
-
+    model = (
+        os.getenv("FEATHERLESS_MODEL_DEFENDER")
+        or os.getenv("FEATHERLESS_MODEL")
+        or "Qwen/Qwen3-0.6B"
+    )
     llm = ChatOpenAI(
-        model="Qwen/Qwen3-0.6B",
+        model=model,
         base_url="https://api.featherless.ai/v1",
-        api_key=os.getenv("FEATHERLESS_API_KEY"),
+        api_key=api_key,
         temperature=0,
     )
 
