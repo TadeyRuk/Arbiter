@@ -128,38 +128,39 @@ async def main():
 
         == STEP 6 — OUTPUT ==
         Call band_get_participants, then call band_send_message mentioning at least one
-        valid participant. Your message must consist of ONLY the @mention followed immediately by a single JSON block. Do not include any plain text outside the JSON.
+        valid participant. Deliver your ruling as a natural-language courtroom statement —
+        flowing prose in the first person, the way a presiding judge would read a decision
+        aloud. Do NOT output JSON, bullet lists, key/value pairs, or field names. Write it as
+        connected paragraphs a non-technical reader could follow.
 
         DICTIONARY OF RULINGS:
         {json.dumps(JUDGE_DICTIONARY, indent=8)}
 
-        DISPOSITION JSON
-        The JSON must use these exact field names and types:
-        {{
-          "verdict": "real_incident" | "false_positive" | "escalate_human" | "needs_more_evidence",
-          "ruling_proclamation": "<Insert the exact verbatim paragraph from the DICTIONARY OF RULINGS above that matches your verdict. Add 2-4 sentences of your own measured, first-person prose explaining how the surviving arguments bore on the finding.>",
-          "confidence": <float 0.0–1.0>,
-          "severity": "low" | "medium" | "high" | "critical",
-          "severity_score": {{
-            "evidence_strength": <int 0–10>,
-            "asset_criticality": <int 0–10>,
-            "mitre_severity":    <int 0–10>,
-            "blast_radius":      <int 0–10>,
-            "base_rate":         <int 0–10>
-          }},
-          "prosecutor_claims": [
-            {{ "evidence_ids": ["EVD-..."], "argument": "<text>", "mitre_technique": "<T-id or null>" }}
-          ],
-          "defender_claims": [
-            {{ "evidence_ids": ["EVD-..."], "argument": "<text>", "mitre_technique": "<T-id or null>" }}
-          ],
-          "struck_claims": ["<argument text of each struck claim>"],
-          "reasoning": "<one paragraph citing the surviving EVD-* IDs that drove the verdict>",
-          "requires_human_approval": true | false,
-          "human_decision": null
-        }}
+        Compose your message in this order, as ordinary prose (the labels below are guidance
+        for what to cover, NOT headings to print):
+          1. Open with the exact verbatim paragraph from the DICTIONARY OF RULINGS that matches
+             your chosen verdict.
+          2. Devote a full paragraph to weighing the two sides against each other. First lay out
+             the Prosecutor's strongest surviving argument in your own words and acknowledge what
+             made it compelling, naming the decisive evidence (cite EVD-* IDs inline, woven into
+             sentences). Then turn to the Defender's strongest surviving argument and give it the
+             same fair hearing. Make plain WHY one side ultimately outweighed the other — name the
+             point on which the case turned. Even when the verdict is clear, show that both
+             positions were genuinely considered; this is the heart of the ruling and should be
+             its longest, most substantive passage.
+          3. State the severity you assigned (low / medium / high / critical) and your
+             confidence in plain words (e.g. "I hold this with high confidence"), and explain what
+             weighed most — the strength of the evidence, the criticality of the affected asset,
+             the technique involved, or the potential blast radius.
+          4. If any arguments were struck for failing citation validation, say so in a sentence
+             and note that they carried no weight in the finding.
+          5. Close with a firm, declarative final word: state clearly whether this disposition
+             requires human approval before any action is taken, and if so, name the disruptive
+             action implied (e.g. isolating the host or disabling a credential) and that nothing
+             destructive will execute without human sign-off.
 
-        Do not add extra fields. Set human_decision to null. Ensure the JSON is properly formatted and valid.
+        Aim for three to four full paragraphs of dignified, authoritative prose — substantial
+        enough to read as a considered judgment, never a terse note. No JSON anywhere.
 
         == CALIBRATION ==
         Reason only from evidence in the EvidenceBundle and any supplements. Never invent
