@@ -29,75 +29,7 @@ JUDGE_DICTIONARY = {
 }
 
 
-def _field(p, key):
-    if isinstance(p, dict):
-        return p.get(key)
-    return getattr(p, key, None)
-
-
-def _extract_think(text: str) -> str | None:
-    m = _THINK.search(text or "")
-    return m.group(1).strip() if m else None
-
-
-def _log_think(think: str) -> None:
-    sep = "─" * 60
-    lines = "\n".join(f"  {line}" for line in think.splitlines())
-    logger.info("\n%s\n  🧠  JUDGE THINKING\n%s\n%s\n%s", sep, sep, lines, sep)
-
-
-class JudgePreprocessor(DefaultPreprocessor):
-    """Filter self and peer-agent messages; trust DefaultPreprocessor for mention gating."""
-
-    async def process(self, ctx, event, agent_id: str):
-        agent_input = await super().process(ctx=ctx, event=event, agent_id=agent_id)
-        if agent_input is None:
-            return None
-
-        if agent_input.msg.sender_id == agent_id:
-            logger.info("[JUDGE] ignoring message %s (sent by self)", agent_input.msg.id)
-            return None
-
-        tools = agent_input.tools
-        parts = tools.get_participants()
-        if inspect.isawaitable(parts):
-            parts = await parts
-
-        sender_handle = None
-        for p in parts or []:
-            if _field(p, "id") == agent_input.msg.sender_id:
-                sender_handle = _field(p, "handle") or _field(p, "name")
-                break
-
-        if sender_handle:
-            sh_lower = sender_handle.lower()
-            if sh_lower.endswith("/prosecuter") or sh_lower.endswith("/defender") or sh_lower.endswith("/triage"):
-                logger.info("[JUDGE] ignoring message %s (sent by peer agent %s)", agent_input.msg.id, sender_handle)
-                return None
-
-        return agent_input
-
-
-async def main():
-    load_dotenv()
-
-    agent_id, api_key = load_agent_config("judge_agent", config_path=AGENT_CONFIG_PATH)
-
-    model = (
-        os.getenv("FEATHERLESS_MODEL_JUDGE")
-        or os.getenv("FEATHERLESS_MODEL")
-        or "Qwen/Qwen3-32B"
-    )
-    llm = ChatOpenAI(
-        model=model,
-        base_url="https://api.featherless.ai/v1",
-        api_key=os.getenv("FEATHERLESS_API_KEY_JUDGE") or os.getenv("FEATHERLESS_API_KEY"),
-    )
-
-    adapter = LangGraphAdapter(
-        llm=llm,
-        checkpointer=InMemorySaver(),
-        custom_section=f"""
+SYSTEM_PROMPT = f"""
         You are the Judge Agent for the Arbiter security adjudication system.
 
         == ROLE IN THE MULTI-AGENT WORKFLOW ==
@@ -233,6 +165,77 @@ async def main():
         Set confidence as a deliberate estimate of how strongly the surviving evidence supports
         the chosen verdict.
         """
+
+
+def _field(p, key):
+    if isinstance(p, dict):
+        return p.get(key)
+    return getattr(p, key, None)
+
+
+def _extract_think(text: str) -> str | None:
+    m = _THINK.search(text or "")
+    return m.group(1).strip() if m else None
+
+
+def _log_think(think: str) -> None:
+    sep = "─" * 60
+    lines = "\n".join(f"  {line}" for line in think.splitlines())
+    logger.info("\n%s\n  🧠  JUDGE THINKING\n%s\n%s\n%s", sep, sep, lines, sep)
+
+
+class JudgePreprocessor(DefaultPreprocessor):
+    """Filter self and peer-agent messages; trust DefaultPreprocessor for mention gating."""
+
+    async def process(self, ctx, event, agent_id: str):
+        agent_input = await super().process(ctx=ctx, event=event, agent_id=agent_id)
+        if agent_input is None:
+            return None
+
+        if agent_input.msg.sender_id == agent_id:
+            logger.info("[JUDGE] ignoring message %s (sent by self)", agent_input.msg.id)
+            return None
+
+        tools = agent_input.tools
+        parts = tools.get_participants()
+        if inspect.isawaitable(parts):
+            parts = await parts
+
+        sender_handle = None
+        for p in parts or []:
+            if _field(p, "id") == agent_input.msg.sender_id:
+                sender_handle = _field(p, "handle") or _field(p, "name")
+                break
+
+        if sender_handle:
+            sh_lower = sender_handle.lower()
+            if sh_lower.endswith("/prosecuter") or sh_lower.endswith("/defender") or sh_lower.endswith("/triage"):
+                logger.info("[JUDGE] ignoring message %s (sent by peer agent %s)", agent_input.msg.id, sender_handle)
+                return None
+
+        return agent_input
+
+
+async def main():
+    load_dotenv()
+
+    agent_id, api_key = load_agent_config("judge_agent", config_path=AGENT_CONFIG_PATH)
+
+    model = (
+        os.getenv("FEATHERLESS_MODEL_JUDGE")
+        or os.getenv("FEATHERLESS_MODEL")
+        or "Qwen/Qwen3-32B"
+    )
+    llm = ChatOpenAI(
+        model=model,
+        base_url="https://api.featherless.ai/v1",
+        api_key=os.getenv("FEATHERLESS_API_KEY_JUDGE") or os.getenv("FEATHERLESS_API_KEY"),
+    )
+
+    adapter = LangGraphAdapter(
+        llm=llm,
+        checkpointer=InMemorySaver(),
+        custom_section=SYSTEM_PROMPT,
     )
 
     agent = Agent.create(

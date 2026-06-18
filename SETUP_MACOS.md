@@ -22,7 +22,9 @@ Go to [app.band.ai](https://app.band.ai), sign in, then click **Agents** in the 
 
 Click **New Agent** → **Remote Agent**. Fill in your agent name and description.
 
-> Name it `Arbiter | AGENT_NAME` — replace `AGENT_NAME` with your role (Triage, Prosecutor, Defender, or Judge).
+> Name it `Arbiter | AGENT_NAME` — replace `AGENT_NAME` with your role (Triage, Prosecutor, Defender, Judge, or System Diagnostics).
+
+> **System Diagnostics Agent** only needs Band credentials — no Featherless API key. Use it to mirror terminal WARNING/error output into the chat room.
 
 ![Agent info form](docs/screenshots/agent-info.png)
 
@@ -46,6 +48,7 @@ Open the project in your editor. Find your folder:
 | Prosecutor | `prosecutor/` |
 | Defender | `defender/` |
 | Judge | `judge/` |
+| System Diagnostics | `diagnostics/` |
 
 ![Pick your agent folder](docs/screenshots/pick-agent.png)
 
