@@ -1,15 +1,25 @@
 import asyncio
+import inspect
+import json
 import logging
 import os
-import json
+import re
+from pathlib import Path
+
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from band import Agent
 from band.adapters import LangGraphAdapter
 from band.config import load_agent_config
+from band.preprocessing import DefaultPreprocessor
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("judge")
+JUDGE_DIR = Path(__file__).resolve().parent
+AGENT_CONFIG_PATH = JUDGE_DIR / "agent_config.yaml"
+
+_THINK = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 
 JUDGE_DICTIONARY = {
     "real_incident": "The court has reviewed the digital forensics presented. Let the record reflect that the findings indicate a severe and undeniable breach of protocol. I hereby declare this matter a confirmed incident.",
@@ -18,15 +28,70 @@ JUDGE_DICTIONARY = {
     "needs_more_evidence": "This court cannot render a judgment on hearsay and incomplete logs. The parties have failed to provide the necessary artifacts. I am staying this proceeding until further discovery is submitted."
 }
 
+
+def _field(p, key):
+    if isinstance(p, dict):
+        return p.get(key)
+    return getattr(p, key, None)
+
+
+def _extract_think(text: str) -> str | None:
+    m = _THINK.search(text or "")
+    return m.group(1).strip() if m else None
+
+
+def _log_think(think: str) -> None:
+    sep = "─" * 60
+    lines = "\n".join(f"  {line}" for line in think.splitlines())
+    logger.info("\n%s\n  🧠  JUDGE THINKING\n%s\n%s\n%s", sep, sep, lines, sep)
+
+
+class JudgePreprocessor(DefaultPreprocessor):
+    """Filter self and peer-agent messages; trust DefaultPreprocessor for mention gating."""
+
+    async def process(self, ctx, event, agent_id: str):
+        agent_input = await super().process(ctx=ctx, event=event, agent_id=agent_id)
+        if agent_input is None:
+            return None
+
+        if agent_input.msg.sender_id == agent_id:
+            logger.info("[JUDGE] ignoring message %s (sent by self)", agent_input.msg.id)
+            return None
+
+        tools = agent_input.tools
+        parts = tools.get_participants()
+        if inspect.isawaitable(parts):
+            parts = await parts
+
+        sender_handle = None
+        for p in parts or []:
+            if _field(p, "id") == agent_input.msg.sender_id:
+                sender_handle = _field(p, "handle") or _field(p, "name")
+                break
+
+        if sender_handle:
+            sh_lower = sender_handle.lower()
+            if sh_lower.endswith("/prosecuter") or sh_lower.endswith("/defender") or sh_lower.endswith("/triage"):
+                logger.info("[JUDGE] ignoring message %s (sent by peer agent %s)", agent_input.msg.id, sender_handle)
+                return None
+
+        return agent_input
+
+
 async def main():
     load_dotenv()
 
-    agent_id, api_key = load_agent_config("judge_agent")
+    agent_id, api_key = load_agent_config("judge_agent", config_path=AGENT_CONFIG_PATH)
 
+    model = (
+        os.getenv("FEATHERLESS_MODEL_JUDGE")
+        or os.getenv("FEATHERLESS_MODEL")
+        or "Qwen/Qwen3-32B"
+    )
     llm = ChatOpenAI(
-        model="Qwen/Qwen3-32B",
+        model=model,
         base_url="https://api.featherless.ai/v1",
-        api_key=os.getenv("FEATHERLESS_API_KEY"),
+        api_key=os.getenv("FEATHERLESS_API_KEY_JUDGE") or os.getenv("FEATHERLESS_API_KEY"),
     )
 
     adapter = LangGraphAdapter(
@@ -176,6 +241,7 @@ async def main():
         api_key=api_key,
         ws_url=os.getenv("THENVOI_WS_URL"),
         rest_url=os.getenv("THENVOI_REST_URL"),
+        preprocessor=JudgePreprocessor(),
     )
 
     await agent.run()
