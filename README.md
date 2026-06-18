@@ -33,9 +33,17 @@ Diagnostics messages are prefixed with `[SYSTEM_DIAGNOSTICS]` so the Orchestrato
 
 ### What you need
 
-- **Band credentials only** — no Featherless API key, no LLM
-- A separate Remote Agent registered on [app.band.ai](https://app.band.ai) named **System Diagnostics Agent** (or `Arbiter | System Diagnostics`)
-- The agent added to the same adjudication room as the other Arbiter agents
+Diagnostics uses **two config files** — there is no Featherless / LLM API key:
+
+| File | What goes in it |
+|------|-----------------|
+| **`diagnostics/agent_config.yaml`** | Band `agent_id` + `api_key` from [app.band.ai](https://app.band.ai) |
+| **Repo-root `.env`** | `THENVOI_REST_URL` and `THENVOI_WS_URL` (Band WebSocket/REST endpoints) |
+
+Also required:
+
+- A Remote Agent on Band named **System Diagnostics Agent** (or `Arbiter | System Diagnostics`)
+- That agent added to the same adjudication room as the other Arbiter agents
 
 ### Setup
 
@@ -60,12 +68,14 @@ diagnostics_agent:
 pip3 install -r diagnostics/requirements.txt
 ```
 
-4. Ensure Band URLs are in your root `.env` (same as other agents):
+4. Ensure Band URLs are in your **repo-root** `.env` (not a Featherless key):
 
 ```
 THENVOI_REST_URL=https://app.band.ai/
 THENVOI_WS_URL=wss://app.band.ai/api/v1/socket/websocket
 ```
+
+> If you run `python3 diagnostics/agent.py` from the `diagnostics/` folder, it loads the root `.env` automatically. You can also `cp diagnostics/.env.example diagnostics/.env` with the same two URLs.
 
 5. Add **System Diagnostics Agent** to your Band room via **Participants +**.
 
