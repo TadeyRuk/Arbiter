@@ -21,6 +21,12 @@ try:
 except ImportError:
     from prosecution import ROOM_PROMPT
 
+try:
+    from shared.diagnostics import format_agent_error
+except ImportError:
+    def format_agent_error(agent_name: str, exc: BaseException) -> str:
+        return f"[AGENT_ERROR] {agent_name}: {type(exc).__name__}: {exc}"
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("prosecutor")
 PROSECUTOR_DIR = Path(__file__).resolve().parent
@@ -201,11 +207,11 @@ class ProsecutorAdapter(SimpleAdapter):
                 "[PROSECUTOR] replied %d chars to %s (mentions=%s)",
                 len(content), room_id, mentions,
             )
-        except Exception:
+        except Exception as exc:
             logger.exception("[PROSECUTOR] failed on %s", msg.id)
             try:
                 await tools.send_message(
-                    content="Internal error while arguing this alert; see agent logs.",
+                    content=format_agent_error("prosecutor", exc),
                     mentions=(await self._reply_mentions(tools, msg.sender_id)) or None,
                 )
             except Exception:

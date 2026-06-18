@@ -1,0 +1,10 @@
+# Copy to agent_config.yaml and fill in credentials from app.band.ai
+#
+#   cp agent_config.yaml.example agent_config.yaml
+#
+# Register: Band → Agents → New Agent → Remote Agent
+# Name: System Diagnostics Agent (or Arbiter | System Diagnostics)
+# No Featherless API key required — Band credentials only.
+diagnostics_agent:
+  agent_id: "your-band-agent-id"
+  api_key: "your-band-api-key"

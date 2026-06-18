@@ -21,6 +21,8 @@ from triage.tools import TRIAGE_TOOLS
 from prosecutor.agent import ProsecutorAdapter
 from defender.agent import DefenderAdapter
 from judge.agent import SYSTEM_PROMPT as JUDGE_SYSTEM_PROMPT
+from diagnostics.agent import DiagnosticsAdapter
+from shared.diagnostics import install_diagnostics_logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("run_all")
@@ -41,6 +43,7 @@ def is_valid_config(aid: str, akey: str) -> bool:
 
 async def main():
     load_dotenv()
+    install_diagnostics_logging()
 
     shared_key = os.getenv("FEATHERLESS_API_KEY")
     shared_model = os.getenv("FEATHERLESS_MODEL") or "Qwen/Qwen3-32B"
@@ -185,6 +188,27 @@ async def main():
         logger.info("Judge agent configured with model %s.", jud_model)
     else:
         logger.warning("Judge agent is not configured or missing API key (WIP). Skipping Judge activation.")
+
+    # 6. System Diagnostics Agent (Band credentials only — no LLM)
+    diag_id, diag_key = safe_load_config(
+        "diagnostics_agent", "diagnostics/agent_config.yaml"
+    )
+    if is_valid_config(diag_id, diag_key):
+        agents.append(
+            Agent.create(
+                adapter=DiagnosticsAdapter(self_id=diag_id),
+                agent_id=diag_id,
+                api_key=diag_key,
+                ws_url=ws_url,
+                rest_url=rest_url,
+            )
+        )
+        logger.info("System Diagnostics Agent configured.")
+    else:
+        logger.warning(
+            "System Diagnostics Agent is not configured. "
+            "Terminal errors will not appear in Band chat."
+        )
 
     if not agents:
         logger.error("No agents are configured. Exiting.")

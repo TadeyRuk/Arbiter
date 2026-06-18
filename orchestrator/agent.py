@@ -26,6 +26,15 @@ from band.config import load_agent_config
 from band.core.simple_adapter import SimpleAdapter
 from band.converters.langchain import LangChainHistoryConverter
 
+try:
+    from shared.diagnostics import AGENT_ERROR_PREFIX, DIAGNOSTICS_PREFIX, format_agent_error
+except ImportError:
+    AGENT_ERROR_PREFIX = "[AGENT_ERROR]"
+    DIAGNOSTICS_PREFIX = "[SYSTEM_DIAGNOSTICS]"
+
+    def format_agent_error(agent_name: str, exc: BaseException) -> str:
+        return f"{AGENT_ERROR_PREFIX} {agent_name}: {type(exc).__name__}: {exc}"
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("orchestrator")
 ORCHESTRATOR_DIR = Path(__file__).resolve().parent
@@ -270,6 +279,10 @@ class OrchestratorAdapter(SimpleAdapter):
 
             sender_role = await self._get_sender_role(tools, msg.sender_id)
 
+            if DIAGNOSTICS_PREFIX in user_text:
+                logger.info("[ORCHESTRATOR] ignoring diagnostics message %s", msg.id)
+                return
+
             # Ignore messages from other agents when in idle or done phase
             if self._phase in ("idle", "done") and sender_role is not None:
                 logger.info("[ORCHESTRATOR] ignoring message %s from agent %s in %s phase", msg.id, sender_role, self._phase)
@@ -358,10 +371,24 @@ class OrchestratorAdapter(SimpleAdapter):
 
             # ── Phase 3: Debate — collect both sides ─────────────────────────
             if self._phase == "debate":
-                if "Internal error" in user_text:
+                is_agent_error = (
+                    AGENT_ERROR_PREFIX in user_text or "Internal error" in user_text
+                )
+                if is_agent_error:
+                    failed = sender_role or "unknown agent"
                     logger.warning(
-                        "[ORCHESTRATOR] received agent error from %s; waiting for a real argument",
-                        sender_role or "unknown sender",
+                        "[ORCHESTRATOR] agent error from %s during debate; escalating",
+                        failed,
+                    )
+                    self._phase = "done"
+                    await tools.send_message(
+                        content=(
+                            f"⚠️ **[ORCHESTRATOR]** Case halted — `{failed}` failed during debate.\n\n"
+                            f"{user_text}\n\n"
+                            "Check **System Diagnostics Agent** posts for the full traceback, "
+                            "or inspect the terminal logs. Re-paste the alert to open a new case."
+                        ),
+                        mentions=human_mentions or None,
                     )
                     return
 
@@ -505,11 +532,11 @@ Be calibrated. An honest low-confidence verdict beats a false certainty.
                     mentions=human_mentions or None,
                 )
 
-        except Exception:
+        except Exception as exc:
             logger.exception("[ORCHESTRATOR] failed on %s", msg.id)
             try:
                 await tools.send_message(
-                    content="Internal error in Orchestrator; see agent logs.",
+                    content=format_agent_error("orchestrator", exc),
                     mentions=(await self._humans(tools)) or None,
                 )
             except Exception:
