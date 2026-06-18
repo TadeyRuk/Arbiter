@@ -37,11 +37,21 @@ DEFENDER_HANDOFF_MARKERS = (
     "[ORCHESTRATOR -> DEFENDER]",
 )
 
-_THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
+_THINK = re.compile(r"<think>(.*?)</think>", re.DOTALL)
+
+
+def _extract_think(text: str) -> str | None:
+    m = _THINK.search(text or "")
+    return m.group(1).strip() if m else None
+
+
+def _log_think(agent: str, think: str) -> None:
+    sep = "─" * 60
+    lines = "\n".join(f"  {line}" for line in think.splitlines())
+    logger.info("\n%s\n  🧠  %s THINKING\n%s\n%s\n%s", sep, agent, sep, lines, sep)
 
 
 def _clean(text: str) -> str:
-    """Drop any <think> block and surrounding whitespace."""
     return _THINK.sub("", text or "").strip()
 
 
@@ -185,7 +195,7 @@ class DefenderAdapter(SimpleAdapter):
                 self_handle = _field(p, "handle") or _field(p, "name")
                 break
                 
-        if not _is_targeted_to_defender(msg.content or "", self_handle, sender_handle):
+        if not _is_targeted_to_defender(getattr(msg, "content", None) or msg.format_for_llm(), self_handle, sender_handle):
             logger.info("[DEFENDER] ignoring message %s (not spoken to)", msg.id)
             return
 
@@ -196,9 +206,11 @@ class DefenderAdapter(SimpleAdapter):
         messages = [("system", ROOM_PROMPT), *(history or []), ("user", user_text)]
         try:
             response = await self.llm.ainvoke(messages)
-            content = _clean(getattr(response, "content", str(response)))
-            if not content:
-                content = "I couldn't form a grounded position on this alert."
+            raw = getattr(response, "content", str(response))
+            think = _extract_think(raw)
+            if think:
+                _log_think("DEFENDER", think)
+            content = _clean(raw) or "I couldn't form a grounded position on this alert."
             await tools.send_message(content=content, mentions=mentions or None)
             logger.info(
                 "[DEFENDER] replied %d chars to %s (mentions=%s)",

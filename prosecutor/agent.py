@@ -31,7 +31,18 @@ PROSECUTOR_HANDOFF_MARKERS = (
     "[ORCHESTRATOR -> PROSECUTOR]",
 )
 
-_THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
+_THINK = re.compile(r"<think>(.*?)</think>", re.DOTALL)
+
+
+def _extract_think(text: str) -> str | None:
+    m = _THINK.search(text or "")
+    return m.group(1).strip() if m else None
+
+
+def _log_think(agent: str, think: str) -> None:
+    sep = "─" * 60
+    lines = "\n".join(f"  {line}" for line in think.splitlines())
+    logger.info("\n%s\n  🧠  %s THINKING\n%s\n%s\n%s", sep, agent, sep, lines, sep)
 
 
 def _clean(text: str) -> str:
@@ -171,7 +182,7 @@ class ProsecutorAdapter(SimpleAdapter):
                 self_handle = _field(p, "handle") or _field(p, "name")
                 break
                 
-        if not _is_targeted_to_prosecutor(msg.content or "", self_handle, sender_handle):
+        if not _is_targeted_to_prosecutor(getattr(msg, "content", None) or msg.format_for_llm(), self_handle, sender_handle):
             logger.info("[PROSECUTOR] ignoring message %s (not spoken to)", msg.id)
             return
 
@@ -180,9 +191,11 @@ class ProsecutorAdapter(SimpleAdapter):
         messages = [("system", ROOM_PROMPT), *(history or []), ("user", user_text)]
         try:
             response = await self.llm.ainvoke(messages)
-            content = _clean(getattr(response, "content", str(response)))
-            if not content:
-                content = "I couldn't form a grounded position on this alert."
+            raw = getattr(response, "content", str(response))
+            think = _extract_think(raw)
+            if think:
+                _log_think("PROSECUTOR", think)
+            content = _clean(raw) or "I couldn't form a grounded position on this alert."
             await tools.send_message(content=content, mentions=mentions or None)
             logger.info(
                 "[PROSECUTOR] replied %d chars to %s (mentions=%s)",

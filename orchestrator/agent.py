@@ -31,7 +31,7 @@ logger = logging.getLogger("orchestrator")
 ORCHESTRATOR_DIR = Path(__file__).resolve().parent
 AGENT_CONFIG_PATH = ORCHESTRATOR_DIR / "agent_config.yaml"
 
-_THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
+_THINK = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 
 _ALERT_KEYS = ('"alert_id"', '"rule_name"', '"raw_payload"')
 _BUNDLE_MARKERS = ('"evidence_id"', '"EVD-', "EVD-")
@@ -110,6 +110,17 @@ WELCOME = (
 )
 
 
+def _extract_think(text: str) -> str | None:
+    m = _THINK.search(text or "")
+    return m.group(1).strip() if m else None
+
+
+def _log_think(agent: str, think: str) -> None:
+    sep = "─" * 60
+    lines = "\n".join(f"  {line}" for line in think.splitlines())
+    logger.info("\n%s\n  🧠  %s THINKING\n%s\n%s\n%s", sep, agent, sep, lines, sep)
+
+
 def _clean(text: str) -> str:
     return _THINK.sub("", text or "").strip()
 
@@ -134,7 +145,7 @@ def _json_payload(text: str) -> dict | None:
             return None
         raw = raw[start:]
     try:
-        payload = json.loads(raw)
+        payload, _ = json.JSONDecoder().raw_decode(raw)
     except json.JSONDecodeError:
         return None
     return payload if isinstance(payload, dict) else None
@@ -210,6 +221,19 @@ class OrchestratorAdapter(SimpleAdapter):
                     return "judge"
         return None
 
+    async def _send_llm_response(
+        self,
+        tools,
+        raw: str,
+        fallback: str,
+        mentions: list | None = None,
+    ) -> None:
+        think = _extract_think(raw)
+        if think:
+            _log_think("ORCHESTRATOR", think)
+        content = _clean(raw) or fallback
+        await tools.send_message(content=content, mentions=mentions)
+
     def _reset_case(self):
         self._phase = "idle"
         self._debate_sides = set()
@@ -263,10 +287,12 @@ class OrchestratorAdapter(SimpleAdapter):
                     messages,
                     extra_body={"chat_template_kwargs": {"enable_thinking": thinking}},
                 )
-                content = _clean(getattr(response, "content", str(response)))
-                if not content:
-                    content = "**[ORCHESTRATOR]** New alert received. Opening case and routing to Triage."
-                await tools.send_message(content=content, mentions=human_mentions or None)
+                await self._send_llm_response(
+                    tools,
+                    raw=getattr(response, "content", str(response)),
+                    fallback="**[ORCHESTRATOR]** New alert received. Opening case and routing to Triage.",
+                    mentions=human_mentions or None,
+                )
 
                 triage = await self._find_agent(tools, "/triage")
                 if triage:
@@ -431,11 +457,6 @@ Output a Disposition JSON:
 
 Be calibrated. An honest low-confidence verdict beats a false certainty.
 """
-                            import re
-                            _THINK_FALLBACK = re.compile(r"<think>.*?</think>", re.DOTALL)
-                            def judge_clean(text: str) -> str:
-                                return _THINK_FALLBACK.sub("", text or "").strip()
-
                         case_text = "\n\n---\n\n".join(self._case_summary)
                         judge_messages = [("system", JUDGE_SYSTEM_PROMPT), ("user", case_text)]
 
@@ -444,11 +465,12 @@ Be calibrated. An honest low-confidence verdict beats a false certainty.
                             judge_messages,
                             extra_body={"chat_template_kwargs": {"enable_thinking": True}},
                         )
-                        disposition = judge_clean(getattr(response, "content", str(response)))
-                        if not disposition:
-                            disposition = "Could not produce a Disposition from the available arguments."
-
-                        await tools.send_message(content=disposition, mentions=human_mentions or None)
+                        await self._send_llm_response(
+                            tools,
+                            raw=getattr(response, "content", str(response)),
+                            fallback="Could not produce a Disposition from the available arguments.",
+                            mentions=human_mentions or None,
+                        )
                         logger.info("[ORCHESTRATOR] fallback adjudication complete")
 
                         self._phase = "done"
@@ -467,10 +489,12 @@ Be calibrated. An honest low-confidence verdict beats a false certainty.
                     messages,
                     extra_body={"chat_template_kwargs": {"enable_thinking": thinking}},
                 )
-                content = _clean(getattr(response, "content", str(response)))
-                if not content:
-                    content = "**[ORCHESTRATOR]** Case closed. Judge has issued the Disposition above."
-                await tools.send_message(content=content, mentions=human_mentions or None)
+                await self._send_llm_response(
+                    tools,
+                    raw=getattr(response, "content", str(response)),
+                    fallback="**[ORCHESTRATOR]** Case closed. Judge has issued the Disposition above.",
+                    mentions=human_mentions or None,
+                )
                 logger.info("[ORCHESTRATOR] case closed")
                 return
 

@@ -37,11 +37,6 @@ logger = logging.getLogger(__name__)
 EVD_ID_RE = re.compile(r"EVD-[0-9a-f]{6}-\d{3}")
 TRIAGE_DIR = Path(__file__).resolve().parent
 AGENT_CONFIG_PATH = TRIAGE_DIR / "agent_config.yaml"
-ORCHESTRATOR_HANDLE_SUFFIX = "/arbiter-orchestrator2"
-TRIAGE_HANDOFF_MARKERS = (
-    "[ORCHESTRATOR → TRIAGE]",
-    "[ORCHESTRATOR -> TRIAGE]",
-)
 
 def _field(p, key):
     if isinstance(p, dict):
@@ -49,12 +44,9 @@ def _field(p, key):
     return getattr(p, key, None)
 
 
-def _is_targeted_to_triage(content: str, self_handle: str | None, sender_handle: str | None) -> bool:
-    if self_handle and self_handle.lower() in content.lower():
-        return True
-    if sender_handle and sender_handle.lower().endswith(ORCHESTRATOR_HANDLE_SUFFIX):
-        return any(marker in content for marker in TRIAGE_HANDOFF_MARKERS)
-    return False
+def _msg_text(msg: Any) -> str:
+    """Return message text, falling back to format_for_llm() when content is None."""
+    return getattr(msg, "content", None) or msg.format_for_llm()
 
 
 SYSTEM_PROMPT = """
@@ -116,7 +108,8 @@ def _json_from_message(message: Any) -> dict[str, Any] | None:
         return None
 
     try:
-        return json.loads(text)
+        payload, _ = json.JSONDecoder().raw_decode(text)
+        return payload if isinstance(payload, dict) else None
     except json.JSONDecodeError:
         return None
 
@@ -301,19 +294,13 @@ class TriagePreprocessor:
             logger.info("Triage agent ignoring message %s (sent by self)", agent_input.msg.id)
             return None
 
-        # Check if spoken to
+        # Ignore messages from peer agents (Prosecutor, Defender) — DefaultPreprocessor
+        # already gates on Band's mention system, so any non-None agent_input is targeted.
         tools = agent_input.tools
         parts = tools.get_participants()
         if inspect.isawaitable(parts):
             parts = await parts
-        
-        self_handle = None
-        for p in parts or []:
-            if _field(p, "id") == agent_id:
-                self_handle = _field(p, "handle") or _field(p, "name")
-                break
 
-        # Ignore messages from other non-coordinating agents (Prosecutor, Defender)
         sender_handle = None
         for p in parts or []:
             if _field(p, "id") == agent_input.msg.sender_id:
@@ -325,12 +312,9 @@ class TriagePreprocessor:
             if sh_lower.endswith("/prosecuter") or sh_lower.endswith("/defender"):
                 logger.info("Triage agent ignoring message %s (sent by other agent %s)", agent_input.msg.id, sender_handle)
                 return None
-                
-        if not _is_targeted_to_triage(agent_input.msg.content or "", self_handle, sender_handle):
-            logger.info("Triage agent ignoring message %s (not spoken to)", agent_input.msg.id)
-            return None
 
-        payload = _json_from_message(agent_input.msg.content)
+        msg_text = _msg_text(agent_input.msg)
+        payload = _json_from_message(msg_text)
         if not payload or payload.get("type") != "JUDGE_REQUESTS_CLARIFICATION":
             return agent_input
 

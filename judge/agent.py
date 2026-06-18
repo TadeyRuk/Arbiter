@@ -100,7 +100,7 @@ class JudgePreprocessor(DefaultPreprocessor):
             if sh_lower.endswith("/prosecuter") or sh_lower.endswith("/defender") or sh_lower.endswith("/triage"):
                 return None
                 
-        if not _is_targeted_to_judge(agent_input.msg.content or "", self_handle, sender_handle):
+        if not _is_targeted_to_judge(getattr(agent_input.msg, "content", None) or agent_input.msg.format_for_llm(), self_handle, sender_handle):
             return None
 
         return agent_input
